@@ -1,0 +1,15 @@
+#lang rhombus
+/* Proves accepted-winner FIFO ordering at three depths from the two declared child contracts. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rspecl/runner.rkt").prove_design
+  "arbiter-queue.rhdl" as rtl
+  "arbiter-queue.rspl" as spec
+
+module main:
+  for (depth in [1, 2, 3]):
+    def top = elaborate(rtl.ArbiterQueue(2, ~depth: depth)).top
+    def seal = prove_design(top, spec.ArbiterQueue)
+    println("Proved ArbiterQueue accepted-winner FIFO ordering, capacity " ++ to_string(depth))

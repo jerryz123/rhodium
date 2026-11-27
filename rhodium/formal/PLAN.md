@@ -60,9 +60,11 @@ treat a matching batch schema as proof that two monitors agree.
    QueuePair(1) and QueuePair(2) now prove their two- and four-word bounds
    from generic ShiftQueue seals using `child`, `history`, and `relate`. Their
    `direct_wires` obligation also checks a non-FIFO parallel cut. QueuePairSeries
-   reuses the two generic parent seals for the six-word contract. Next migrate
-   the arbiter/ROB consumers. Preserve the
-   two-lane exclusivity obligation; it is not an environment assumption.
+   reuses the two generic parent seals for the six-word contract.
+   [ArbiterQueue](../../examples/formal/prove-arbiter-queue.rhm) now proves
+   depths 1–3 from the Arbiter transfer and ShiftQueue FIFO contracts; two-lane
+   exclusivity is a checked guarantee, not an environment assumption.
+   Next migrate BufferedArbiterQueue to those generic seals before the ROB.
    Keep the ordering observer's theorem unchanged, the 2/4/6-word bounds,
    fill/drain replay, and the crossed-ready, wrong-payload, reversed-history
    and ready-when-space negatives. Retire the FIFO-specific dispatch and

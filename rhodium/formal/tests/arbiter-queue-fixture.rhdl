@@ -9,11 +9,11 @@ sync_circuit WrongLane(width :: PosInt, depth :: PosInt):
   interface ingress[2](Decoupled(Bits(width)), ~role: consumer)
   interface egress(Irrevocable(Bits(width)), ~role: producer)
   def winner = ingress |> arbiter()
-  inst storage(ShiftQueue(Bits(width), depth))
-  storage.ingress.valid <== winner.valid
-  storage.ingress.bits <== ingress[1].bits
-  winner.ready <== storage.ingress.ready
-  storage.egress |> egress
+  inst shift_queue_stage(ShiftQueue(Bits(width), depth))
+  shift_queue_stage.ingress.valid <== winner.valid
+  shift_queue_stage.ingress.bits <== ingress[1].bits
+  winner.ready <== shift_queue_stage.ingress.ready
+  shift_queue_stage.egress |> egress
 
 // Deliberately too small for the depth-two reference contract.
 sync_circuit Undersized(width :: PosInt):

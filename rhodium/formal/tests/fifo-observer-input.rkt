@@ -34,9 +34,14 @@
          (define count-sort (bitvector (integer-length (reader-capacity c))))
          (define (seq h) (sequence-value (integer->bitvector (fifo-history-count h) count-sort) (fifo-history-slots h)))
          (match-define (fifo-events rst push in pop out) events)
+         (define fifo-batch (hash "reset" rst "push" push "in" in "pop" pop "out" out))
+         ;; Quantify additional batch fields rather than fixing a sampler-domain verdict to true.
+         (define extra (fresh-fields (for/hash ([(k t) (hash-ref (reader-model c) "inputs")]
+                                                #:unless (hash-has-key? fifo-batch k))
+                                      (values k t))))
          (define-values (allowed after)
            (transaction-step (reader-seal c) (reader-view c) (hash "q" (seq old))
-                             (hash "reset" rst "push" push "in" in "pop" pop "out" out)))
+                             (for/fold ([b extra]) ([(k v) fifo-batch]) (hash-set b k v))))
          (&& (<= 0 (fifo-history-count old) (reader-capacity c))
              (<= 0 (fifo-history-count next) (reader-capacity c))
              allowed (equivalent-value? (hash-ref after "q") (seq next)))]

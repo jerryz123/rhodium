@@ -8,6 +8,7 @@ import:
   lib("rhodium/formal/spec-dsl.rhm") open
   lib("rhodium/formal/spec.rhm") as ir
   lib("rhodium/formal/port-types.rhm").check_output_types
+  lib("rhodium/formal/port-types.rhm").SampledPorts
   lib("rhodium/formal/fifo-view.rhm") as fifo_view
   "rtl-boundary.rhm" as boundary
 
@@ -16,11 +17,35 @@ export:
   all_from(lib("rhodium/formal/spec-dsl.rhm")):
     except operand
   spec
+  extend_leaf_transactions
   rename: monitor_view as monitor
   rename: boundary.combine_transactions as combine_transactions
   rename: boundary.ready_valid_events as ready_valid_events
   rename: boundary.rv_pins as rv_pins
   rename: boundary.transaction_view as transaction_view
+
+/* Add stateless guarantees to a proved leaf's transaction interface. The extension is specialized
+   on its cycle signature; the runner must prove the combined monitor from the same RTL leaf. */
+fun extend_leaf_transactions(spec :: Function, extension :: Function.of_arity(1)):
+  def views = WeakMutableMap.by(===){}
+  /* Binding a public cut needs only the leaf's cycle signature and public monitor, not its RTL hints. */
+  fun specialize(top :~ matching(_), cycle :: ir.LeafModel, base :: boundary.TransactionView):
+    unless views.has_key(top)
+    | block:
+        def extra :: boundary.TransactionView = extension(cycle.inputs)
+        unless extra.monitor.state.length() == 0 && extra.cycle_names.length() == 0
+        | error("a transaction extension must preserve the leaf's cycle events and history")
+        def outputs = for Map ((pin, field :: ir.Observed) in cycle.outputs): values(pin, field.value.type)
+        views[top] := boundary.check_transaction_ports(boundary.combine_transactions(base, extra), SampledPorts(cycle.inputs, outputs))
+    views[top]
+  fun (top, ~transaction_view: tx :: Boolean = #false, ~proof_plan: plan :: Boolean = #false):
+    cond
+    | plan:
+        let PairList["leaf", root, cycle, base, projection, hints] = spec(top, ~proof_plan: #true)
+        PairList["leaf", root, cycle, specialize(top, cycle, base), projection, hints]
+    | tx:
+        if views.has_key(top) | views[top] | specialize(top, spec(top), spec(top, ~transaction_view: #true))
+    | ~else: spec(top)
 
 meta:
   import lib("racket/base.rkt").#{syntax-local-context} as expansion_context
@@ -107,6 +132,22 @@ fun monitor_model(inputs :: Map, states :: Map, initial :: Map, guarantees :: Ma
   def guarded = for Map ((name, rhs) in updates):
     values(name, ir.choose_if(allowed, rhs, ir.state_ref(name, states[name])))
   ir.make_spec(inputs, states, initial, outputs ++ {"allowed": ir.Observed(allowed)}, {}, guarded)
+
+/* A partial event decoder has two products: a total candidate batch, and a stateless
+   guarantee for each domain predicate on the same pins. Never admit a child by assuming it. */
+fun check_event_domains(view :: boundary.TransactionView, sampler :: ir.LeafModel, ports :: SampledPorts):
+  if sampler.assumptions.length() == 0
+  | view
+  | block:
+      def predicates = for Map ((label, p) in sampler.assumptions):
+        values("@domain/" ++ label, ir.Observed(const(Bool, #true), p))
+      def flags = for Map (key in predicates.keys()): values(key, Bool)
+      def goals = for Map (key in predicates.keys()): values(key, ir.input_ref(key, Bool))
+      def bindings = for Map (key in predicates.keys()): values(key, boundary.Presence(key))
+      def checks = ir.make_spec(sampler.inputs, {}, {}, {}, predicates, {})
+      def domain = boundary.transaction_view(monitor_model(flags, {}, {}, goals, {}), [],
+                                             boundary.event_reader(checks, ports), ~bindings: bindings)
+      boundary.combine_transactions(view, domain)
 
 /* Compile the fixed batch vocabulary in declaration scope, independently of the cycle model's RTL pins. */
 expr.macro 'monitor_view: $line; ...':
@@ -336,7 +377,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
         bound_events := Syntax.make_temp_id("sampled_ports")
         model_clause('def $event_source = $rhs ...')
         model_clause('def $bound_events = boundary.bind_event_source($event_source, top)')
-        model_clause('def $reader = boundary.event_reader($(bound_events) . sampler, bound.ports)')
+        model_clause('def $reader = boundary.event_reader($(bound_events) . sampler with (assumptions = {}), bound.ports)')
     | 'events $rhs ...':
         when event_source | syntax_meta.error("duplicate sampled event source", clause)
         event_source := Syntax.make_temp_id("event_source")
@@ -379,6 +420,8 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
   when bound_events && !transaction
   | syntax_meta.error("a named event reader needs a transaction view", name)
   when projection && !transaction && !event_source | syntax_meta.error("cycle refinement requires a transaction view", name)
+  when specialized
+  | transaction := 'check_event_domains($transaction, $(bound_events) . sampler, bound.ports)'
   when refinement && !projection && !fifo_behavior
   | block:
       unless transaction | syntax_meta.error("refinement requires a transaction view", name)
@@ -403,6 +446,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
     if rtl_hint
     | 'PairList["leaf", top.name, checked, view, $(if projection | '$projection(checked)' | 'Map{}'), $rtl_hint(checked)]'
     | 'error("cycle spec has no RTL refinement")'
+  def cycle_plan = if child_specs.length() > 0 | parent_plan | leaf_plan
   /* Return the same public view for consumers. Only a proof request also builds the private relation. */
   fun result_expr(normal :: Syntax):
     if projection | 'if derive | values(view, $projection(checked)) | $normal' | normal
@@ -427,10 +471,11 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
        »'
     | specialized: '«
          def view = specialized_view(top, fun (): boundary.check_transaction_ports($transaction, bound.ports))
-         def cycle_events = ir.include_sampled_events(view.sampler, cycle_outputs, $(map_expr(events)), ~only: view.cycle_names)
+         def cycle_sampler = view.sampler with (assumptions = $(bound_events) . sampler . assumptions)
+         def cycle_events = ir.include_sampled_events(cycle_sampler, cycle_outputs, $(map_expr(events)), ~only: view.cycle_names)
          def checked = check_output_types($build, bound.ports.outputs, [$skip, ...])
          cond
-         | plan: $leaf_plan
+         | plan: $cycle_plan
          | ~else: $(result_expr('cond | tx_only: view | view_only: $bound_events | ~else: checked'))
        »'
     | fifo_behavior:
@@ -454,7 +499,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
          def view = boundary.check_transaction_ports(attached, bound.ports)
          def cycle_events = ir.include_sampled_events(view.sampler, cycle_outputs, $(map_expr(events)), ~only: view.cycle_names)
          def checked = check_output_types($build, bound.ports.outputs, [$skip, ...])
-         if plan | $leaf_plan | $(result_expr('if tx_only | view | checked'))
+         if plan | $cycle_plan | $(result_expr('if tx_only | view | checked'))
        »'
     | passive:
         '«

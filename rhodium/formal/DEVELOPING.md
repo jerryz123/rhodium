@@ -493,8 +493,13 @@ FIFO cannot admit while retiring; the larger specializations must exhibit
 such an edge. Prove reset from unrelated legal states, then check cared
 output pins, externally decoded transfer events, and successor agreement.
 
-The [two-lane transaction proof](tests/arbiter-queue-transactions.rkt) takes
-only that parent certificate, its bound view, and the sequence field `pending`.
+The [standalone transaction proof](../../examples/formal/prove-arbiter-queue.rhm)
+instead checks the two child occurrences and direct drivers declared in the
+parent spec. Its only state source is the FIFO child's public history. Keep
+the transfer extension in the Arbiter spec: grant evidence alone does not
+constrain the outgoing word. Run the [consumer regression](tests/arbiter-queue-transactions.rkt)
+against both this seal and the independent derivation from the handwritten
+parent certificate, its bound view, and the sequence field `pending`.
 The `events` clause captures a helper expression at its lexical site. Its
 stateless sampler is bound once per construction: cycle execution substitutes
 the model's observed outputs into the event expressions, while the passive

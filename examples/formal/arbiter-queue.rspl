@@ -3,6 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import "arbiter-queue.rhdl" as rtl
+import "arbiter.rspl".arbitrated_transfers
+import "shift-queue.rspl".ShiftQueue
+import lib("rspecl/fifo.rspl").fifo_monitor
 
 /* Record accepted external words, oldest first. A full queue cannot accept on its retirement edge. */
 spec for rtl.ArbiterQueue:
@@ -22,7 +25,21 @@ spec for rtl.ArbiterQueue:
   observe ingress[1].ready = grant1 when !reset
   observe egress.valid = valid when !reset
   observe egress.bits = front(pending) when !reset && valid
-  events ready_valid_events(reset, ingress, egress)
+  events transfers = ready_valid_events(reset, ingress, egress)
+  transactions fifo_monitor(depth, first.bits.type.width, transfers)
 
   let retained = select(pop, tail(pending), pending)
   next pending = select(reset, cleared, select(push, append(retained, winner), retained))
+
+  refinement:
+    child arbiter_stage: arbitrated_transfers
+    child shift_queue_stage: ShiftQueue
+    direct_wires {"arbiter_stage.ingress[0].valid": "ingress[0].valid", "arbiter_stage.ingress[0].bits": "ingress[0].bits",
+                  "ingress[0].ready": "arbiter_stage.ingress[0].ready",
+                  "arbiter_stage.ingress[1].valid": "ingress[1].valid", "arbiter_stage.ingress[1].bits": "ingress[1].bits",
+                  "ingress[1].ready": "arbiter_stage.ingress[1].ready",
+                  "shift_queue_stage.ingress.valid": "arbiter_stage.egress.valid", "shift_queue_stage.ingress.bits": "arbiter_stage.egress.bits",
+                  "arbiter_stage.egress.ready": "shift_queue_stage.ingress.ready", "shift_queue_stage.egress.ready": "egress.ready",
+                  "egress.valid": "shift_queue_stage.egress.valid", "egress.bits": "shift_queue_stage.egress.bits"}
+    history buffered from shift_queue_stage.q: Seq(first.bits.type, depth)
+    relate q = buffered

@@ -1,0 +1,38 @@
+#lang rspecl
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("examples/formal/arbiter-queue.rhdl") as rtl
+import lib("examples/formal/arbiter.rspl") as arb
+import lib("examples/formal/shift-queue.rspl").ShiftQueue
+import lib("rspecl/fifo.rspl").fifo_monitor
+import lib("rhodium/formal/spec.rhm").Observed
+import "arbiter-queue-binding.rhm".crossed_sampler
+
+// Prove the genuine grants and transfer count, but expose the output word without constraining it.
+fun count_only(inputs :: Map):
+  fun sample_pins(read, output):
+    arb.grant_events(read, output) ++ {
+      "sent": Observed(output("egress.bits", inputs["ingress[0].bits"]), read("egress.ready", Bool) && output("egress.valid", Bool))}
+  monitor:
+    sample sample_pins
+    publish []
+    batch ga = present(ga)
+    batch gb = present(gb)
+    batch send = present(sent)
+    guarantee "count" = select(ga || gb, send, !send)
+
+def count_producer = extend_leaf_transactions(arb.Arbiter, count_only)
+
+// Change either the child promise or the parent's pin decoding, keeping the genuine RTL.
+fun candidate(fault :: String):
+  spec for rtl.ArbiterQueue:
+    let source = if fault == "word-unconstrained" | ready_valid_events(reset, ingress, egress) | fun (_): crossed_sampler(fault)
+    events transfers = source
+    transactions fifo_monitor(depth, width, transfers)
+    refinement:
+      child arbiter_stage: (if fault == "word-unconstrained" | count_producer | arb.arbitrated_transfers)
+      child shift_queue_stage: ShiftQueue
+      history stored from shift_queue_stage.q: Seq(ingress[0].bits.type, depth)
+      relate q = stored
+  ArbiterQueue
+export candidate

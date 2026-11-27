@@ -366,6 +366,10 @@ which physical handshakes carry the three cycle-event payloads. The runner
 checks these against the cycle spec for arbitrary inputs, including both lanes
 offering at once. It then derives the existing public grant monitor, which samples
 both grant pins independently and does not expose the transfer payloads.
+For a consumer that needs the word, the same spec exports `arbitrated_transfers`.
+`extend_leaf_transactions` conjoins the grant monitor with stateless guarantees
+specialized to the leaf's input types. The runner proves the whole conjunction:
+one output handshake per accepted input, carrying that lane's actual word.
 Exclusivity is enough to use the gate contract, but not enough to say which
 word the parent captured. The lane-priority guarantees supply that second fact.
 Only already-admitted source contracts may justify another child's pin premise;
@@ -697,21 +701,26 @@ sampler for cycle events, passive replay, and its generic transaction monitor:
 `ShiftQueue(top)` runs the cycle model; `ShiftQueue(top, ~event_view: #true)`
 returns its passive sampler. `ShiftQueue(top, ~transaction_view: #true)`
 returns the monitor specialized to that elaborated top. A named event reader
-requires an unconditional sampler: it cannot erase a pin-domain obligation. It samples
+turns any sampler-domain predicates into named monitor guarantees on the same
+pins. Its batch decoder is total; a batch outside the domain is rejected
+and holds the monitor history. ShiftQueue samples
 reset and each endpoint's `valid`, `ready`, and `bits`, not `count` or `mask`.
 For two-bit ShiftQueues at depths 1–3 with pipe, flow, and flush disabled,
 retirements preserve acceptance order since reset and occupancy is bounded
 by depth. The transaction result does not promise readiness whenever space remains.
 
-The [ArbiterQueue spec](../../examples/formal/arbiter-queue.rspl) still uses
-the passive FIFO view with two ingress lanes. Each lane fires on
+The [ArbiterQueue spec](../../examples/formal/arbiter-queue.rspl) shares its
+two-lane sampler between the cycle model and the FIFO monitor. Each lane fires on
 its own `valid && ready`. Two requests are fine; **two transfers on a
 non-reset edge are not**. Concrete sampling rejects such a sample, and
 certification must prove it impossible. The accepted word comes from the
-lane that actually fired. For two-bit words at depths 1–3, the cycle proof
-implies that retirements preserve acceptance order and pending words never
-exceed depth. This weaker view does not promise which lane wins, when either
-lane is ready, or whether a waiting lane will ever be served.
+lane that actually fired. [Run the hierarchical proof](../../examples/formal/prove-arbiter-queue.rhm)
+with `PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-arbiter-queue.rhm`.
+At two-bit width and depths 1–3 the runner checks the direct RTL wiring, including
+backpressure and the FIFO reset, then uses only the Arbiter transfer contract
+and ShiftQueue FIFO contract. Reset starts an empty history, retirements follow
+acceptance order, and at most `depth` words are pending. The parent transaction
+proof does not certify the cycle model's ready timing or promise eventual service.
 
 ## RTL equivalence API
 

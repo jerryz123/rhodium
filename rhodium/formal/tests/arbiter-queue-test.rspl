@@ -62,7 +62,7 @@ check:
   ShiftQueue(elaborate(fifo_rtl.ShiftQueue(payload, 2, ~flow: #true)).top) ~throws "requires pipe, flow, and flushable disabled"
   ShiftQueue(elaborate(fifo_rtl.ShiftQueue(payload, 2, ~flushable: #true)).top) ~throws "requires pipe, flow, and flushable disabled"
 
-// Each variant describes the same RTL declaration in a fresh lexical scope.
+// Asking for the monitor still validates the cycle spec that publishes its sampled events.
 check:
   block:
     spec for design.ArbiterQueue:
@@ -71,7 +71,7 @@ check:
       events transfers = ready_valid_events(reset, ingress, egress)
       transactions fifo_monitor(depth, 2, transfers)
     ArbiterQueue(rtl.mixed, ~transaction_view: #true)
-  ~throws "requires an unconditional stateless sampler"
+  ~throws "undeclared or mistyped spec reference: ingress[0].ready"
 
 check:
   block:
