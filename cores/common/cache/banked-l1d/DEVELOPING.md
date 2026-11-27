@@ -39,6 +39,14 @@ or an accepted snoop to the unpublished line discards it. Never block a victim
 probe on the staged line's CompAck. Only clean acquisitions with their demand
 still in the ordered window can discard a line this way.
 
+[`demand-window.rhdl`](demand-window.rhdl) holds descriptors in a circular
+FIFO. Its issue port indexes relative to the retirement head, while speculative
+set checks examine the live physical slots without rotating the array. Write
+operands occupy a second ring: allocate on accepted Store/SC/AMO, release
+only when that descriptor leaves the head. Classification alone releases
+neither resource. Both use registered capacity; a full ring cannot borrow
+space from a simultaneous retirement.
+
 For multi-slot service, S2 issues the next unclassified entry in FIFO order to
 the same S3 tag lookup used by the head. The classified prefix stays in the
 request window until retirement. An ordinary request attaches to a covering

@@ -57,6 +57,43 @@ void check_overlapping_loads(const Line &a, const Line &b, bool reverse) {
   eval(); CHECK(core_out.pdrained && !chi_out.prequests.pvalid);
 }
 
+void check_demand_window(const Line &a, Line b) {
+  constexpr unsigned dst = base + 64;
+  request(dst, lr, {}, 0xff, false);
+  refill(dst, 7, b);
+  response(Row{{b[0].words[0], b[0].words[1], 0, 0}});
+
+  // Retain the leader outside the FIFO. A same-line waiter at its head
+  // prevents any following request from retiring until DAT is released.
+  request(base, load, {}, 0xffff, true, 0);
+  const auto txn = accept_request(base, 2);
+  request(base + 16, load, {}, 0xffff, true, 1);
+  for (unsigned i = 0; i < 8; ++i) {
+    Row value{};
+    const auto row = i % 4, lane = i / 4;
+    b[row].words[lane] = value.words[lane] = 0xa5000000u + i;
+    request(dst + 16*row, store, value, 0xf << (4*lane), true, 2+i);
+  }
+  auto check_full = [&](unsigned op) {
+    auto &req = core_in.prequest;
+    req.pbits.paccess = op; req.pvalid = virtual_lookup_in.pvalid = 1;
+    virtual_lookup_in.pbits = req.pbits.paddress;
+    eval(); CHECK(!core_out.prequest.pready);
+    req.pvalid = virtual_lookup_in.pvalid = 0;
+  };
+  check_full(store); // Operand ring full; seven descriptor slots still free.
+  for (unsigned i = 0; i < 7; ++i)
+    request(dst + 16*(i%4), load, {}, 0xffff, true, 10+i);
+  check_full(load); // Sixteen descriptors, across both physical ends of the ring.
+  for (unsigned i = 0; i < 4; ++i) refill_packet(txn, i, 1, a[i]);
+  response(a[0], 0); response(a[1], 1);
+  for (unsigned i = 0; i < 8; ++i) response({}, 2+i);
+  for (unsigned i = 0; i < 7; ++i) response(b[i%4], 10+i);
+  until([] { return core_out.pdrained; });
+  request(dst, store, a[0], 0xffff, true, 17); response({}, 17);
+  request(dst, load, {}, 0xffff, true, 18); response(a[0], 18);
+}
+
 void check_invalidated_head(const Line &a, const Line &b) {
   constexpr unsigned cached = base+64, other = base+128;
   request(cached, load); refill(cached, 2, a); response(a[0]);
@@ -538,6 +575,8 @@ int main() {
       reset = 1; tick_model(); reset = 0;
     }
     check_full_forward_responses(a, b);
+    reset = 1; tick_model(); reset = 0;
+    check_demand_window(a, b);
     reset = 1; tick_model(); reset = 0;
     check_invalidated_head(a, b);
     reset = 1; tick_model(); reset = 0;

@@ -24,6 +24,11 @@ granted victim can drain even if the older miss is still waiting for its grant.
 The two engines share one victim reader and one outgoing CHI data port;
 refills can finish out of order, but authorized responses stay ordered.
 
+The two miss slots share one ordered window of 16 request descriptors.
+Stores, store-conditionals and AMOs also reserve one of eight write-operand
+slots. Loads need no operand slot, so a full write pool alone does not block
+a load. Neither limit changes the one-request-per-cycle demand port.
+
 Same-line loads can share an acquisition. A younger store may acquire a
 distinct line early, but its byte mask, data, and acknowledgement stay in
 request order. A probe that revokes its ownership forces a fresh lookup.

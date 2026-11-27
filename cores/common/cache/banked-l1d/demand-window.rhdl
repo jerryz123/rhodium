@@ -1,0 +1,123 @@
+#lang rhodium
+/* Retains authorized L1D requests in order, with separate storage for write operands. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../protocol.rhdl" open
+  "../operation.rhdl".CacheOperation
+  "../../load-store.rhdl".MemoryWidth
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/atomic.rhdl").RiscvAtomicOperation
+  lib("riscv/rtl/zihintntl.rhdl").RiscvMemoryLocality
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+
+def DemandEntries = 16
+def WriteEntries = 8
+def DemandIndex = Bits(index_width(DemandEntries))
+def WriteIndex = Bits(index_width(WriteEntries))
+
+/* Describes an ordered demand even before its hit way or miss slot is known. */
+bundle DemandDescriptor(address_width :: PosInt, Context :: DataType):
+  address: Bits(address_width)
+  context: Context
+  access: CacheOperation
+  width: MemoryWidth
+  unsigned: Bool
+  locality: RiscvMemoryLocality
+  write_slot: WriteIndex
+  raw_beat: Bool
+
+/* Keeps byte enables and an AMO's operation alongside its write operand. */
+bundle WriteOperand(beat_bytes :: Pow2Int):
+  data: Bits(8 * beat_bytes)
+  byte_mask: Bits(beat_bytes)
+  atomic: RiscvAtomicOperation
+
+/* A head-relative issue port can classify younger descriptors without freeing
+   either ring. Only removal of the ordered head releases its operand slot. */
+sync_circuit L1DDemandWindow(xlen :: XLen, Context :: DataType, beat_bytes :: Pow2Int,
+                             address_width :: PosInt, offset_width :: PosInt, set_width :: PosInt):
+  def Request = PhysicalMemoryBeatReq(xlen, Context, beat_bytes)
+  def raw = beat_bytes > xlen.width / 8
+  def Descriptor = DemandDescriptor(address_width, Context)
+  interface ingress(Decoupled(Request), ~role: consumer)
+  interface egress(Irrevocable(Request), ~role: producer)
+  input issue_offset: DemandIndex
+  output issue_request: Request
+  input probe_set: Bits(set_width)
+  output independent: Bool
+  def Count = Bits(index_width(DemandEntries + 1))
+  output count: Count
+
+  reg head(~init: DemandIndex(0))
+  reg tail(~init: DemandIndex(0))
+  reg occupancy(~init: Count(0))
+  reg entries(Vec(DemandEntries, Descriptor))
+  reg live(~init: Bits(DemandEntries)(0).as_vec(Bool))
+  def Operand = WriteOperand(beat_bytes)
+  mem operands(WriteEntries, Operand)
+  def WriteCount = Bits(index_width(WriteEntries + 1))
+  reg write_count(~init: WriteCount(0))
+  reg write_tail(~init: WriteIndex(0))
+
+  /* CBO.ZERO synthesizes bytes locally; only these three operations need a slot. */
+  fun has_operand(op :: CacheOperation) :~ Bool:
+    op.is_one_of(CacheOperation.Store, CacheOperation.StoreConditional, CacheOperation.Atomic)
+
+  def request :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = ingress.bits
+  def writing = has_operand(request.access)
+  ingress.ready <== (occupancy < Count(DemandEntries)) & (!writing ||| (write_count < WriteCount(WriteEntries)))
+  egress.valid <== occupancy.any()
+  count <== occupancy
+  def enqueue = ingress.fire()
+  def dequeue = egress.fire()
+  def first :: DemandDescriptor(address_width, Context) = entries[head]
+  def allocate = enqueue & writing
+  def release = dequeue & has_operand(first.access)
+
+  when enqueue:
+    tail <== wrap_increment(tail, DemandEntries)
+    entries[tail] <== DemandDescriptor(address_width, Context):
+      address: request.address[0..address_width]
+      access: request.access
+      width: request.width
+      unsigned: request.unsigned
+      context: request.context
+      locality: request.locality
+      write_slot: write_tail
+      raw_beat: if raw | request.raw_beat | Bool(#false)
+  when dequeue: head <== wrap_increment(head, DemandEntries)
+  when (enqueue ^ dequeue): occupancy <== mux(enqueue, occupancy + Count(1), occupancy - Count(1))
+  when allocate: write_tail <== wrap_increment(write_tail, WriteEntries)
+  when (allocate ^ release): write_count <== mux(allocate, write_count + WriteCount(1), write_count - WriteCount(1))
+  def operand = WriteOperand(beat_bytes):
+    data: request.data
+    byte_mask: request.byte_mask
+    atomic: request.atomic
+  operands.write(write_tail, operand, ~enable: allocate)
+
+  /* Recover a service request only at its read port. Write bytes and controls
+     are unobservable on loads and locally generated block operations. */
+  fun expand(d :: DemandDescriptor(address_width, Context)) :~ PhysicalMemoryBeatReq(xlen, Context, beat_bytes):
+    def w :: WriteOperand(beat_bytes) = mux(has_operand(d.access), operands[d.write_slot], literal(Operand, 0))
+    def empty :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = literal(Request, 0)
+    def restored = empty.updated(~address: d.address.zext(xlen.width), ~access: d.access,
+                                 ~width: d.width, ~unsigned: d.unsigned, ~context: d.context,
+                                 ~locality: d.locality, ~data: w.data, ~byte_mask: w.byte_mask, ~atomic: w.atomic)
+    if raw | restored.updated(~raw_beat: d.raw_beat) | restored
+
+  egress.bits <== expand(first)
+  issue_request <== expand(entries[head + issue_offset])
+  for (i in 0..DemandEntries):
+    when (enqueue & (tail === DemandIndex(i))): live[i] <== Bool(#true)
+    elsewhen (dequeue & (head === DemandIndex(i))): live[i] <== Bool(#false)
+  def compatible = for List (i in 0..DemandEntries):
+    def entry :: DemandDescriptor(address_width, Context) = entries[i]
+    !live[i] ||| (entry.access.is_load_or_store() & (entry.address[offset_width..(offset_width + set_width)] =/= probe_set))
+  independent <== vec(compatible).as_bits().all()
+
+  describe_interface_queue_storage(DemandEntries, enqueue, dequeue, head, tail, occupancy.any(), Bool(#false))
+  describe_interface_contract(ingress, egress, "demand-head", ~kind: "queue", ~trace_model: interface_trace_queue())
+
+export DemandEntries L1DDemandWindow

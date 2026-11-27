@@ -68,8 +68,11 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~banked_l1d: banked_l1d :: Boo
   /* Coherent storage and ordered uncached transport.
      Data and fetch share transport, but accepted data drain excludes the younger fetch owner. */
 
-  def make_cache = if banked_l1d | BankedL1DCache | L1DCache
-  inst storage(make_cache(xlen, cache, ~chi: config, ~context: Tag, ~service_queue_depth: service_queue_depth, ~beat_bytes: beat_bytes))
+  def storage_module:
+    if banked_l1d
+    | BankedL1DCache(xlen, cache, ~chi: config, ~context: Tag, ~beat_bytes: beat_bytes)
+    | L1DCache(xlen, cache, ~chi: config, ~context: Tag, ~service_queue_depth: service_queue_depth, ~beat_bytes: beat_bytes)
+  inst storage(storage_module)
   storage.node_id <== node_id
   chi <=> storage.chi
   inst uncached(UncachedInstructionMemory(XLen.X64, config, Bool, 64))

@@ -7,6 +7,7 @@ import:
   "../../cache-prefetch.rhdl" open
   "../protocol.rhdl" open
   "arrays.rhdl" open
+  "demand-window.rhdl" open
   "mshrs.rhdl" open
   "../l1d/store-buffer.rhdl" open
   "../operation.rhdl" open
@@ -66,7 +67,6 @@ fun check_l1d_geometry(width :: PosInt, cache :: CacheConfig):
 sync_circuit BankedL1DCache(xlen :: XLen,
                             cache :: CacheConfig,
                             ~chi: config :: RiscvHartCHIConfig,
-                            ~service_queue_depth: service_queue_depth :: PosInt = 2,
                             ~mshr_count: mshr_count :: Int.in(2 ..= 2047) = 2,
                             ~context: Context :: DataType,
                             ~beat_bytes: beat_bytes :: Pow2Int = xlen.width / 8):
@@ -168,8 +168,7 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   // Registered capacity owns acceptance even when a paired virtual lookup can
   // bypass this buffer. Busy arrays retain permitted physical requests here.
   def Request = PhysicalMemoryBeatReq(xlen, Context, beat_bytes)
-  def window_depth = math.max(service_queue_depth, words_per_line + 1)
-  inst service_requests(ShiftQueue(Request, window_depth + 1, ~inspect: #true))
+  inst service_requests(L1DDemandWindow(xlen, Context, beat_bytes, retained_width, offset_width, set_width))
   // S3 retains its request if older S4 work takes the arrays. Its returned
   // data is discarded and reread before retry, including across snoop service.
   inst s3_lookup(Pipe(L1DLookup(xlen, Context, beat_bytes, retained_width), 1))
@@ -416,13 +415,13 @@ sync_circuit BankedL1DCache(xlen :: XLen,
 
   def maintenance_active = !maintenance.command.ready
   // Multi-MSHR service has independent issue and retirement positions. Entries
-  // retain the only ordered copy of store data. S3 examines the next demand,
+  // retain the store operand slot through replay. S3 examines the next demand,
   // never searches younger queue entries for a convenient miss.
   wire dequeue_demand: Bool
   wire retire_head: Bool
   wire classified: Bool
   reg s3_behind(~init: Bool(#false))
-  def Index = Bits(index_width(window_depth + 3))
+  def Index = Bits(index_width(DemandEntries + 1))
   reg parked(~init: Index(0))
   /* A parked ordinary demand may retry outside reserved sets. S3 rechecks
      read permission for a load or exclusive ownership for a store. */
@@ -432,19 +431,20 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   def replay_head = miss_busy & !miss_active & parked.any() & replayable_demand(service_requests.egress.bits)
   def concurrent = miss_busy & !miss_prefetch & miss_install & retained_request.access.is_load_or_store() & !replay_head
   def s3_demand_live = s3_lookup.egress.valid & !s3_lookup.egress.bits.prefetch
-  def issue_index = mux(concurrent, parked, Index(0)) + (s3_demand_live & (concurrent ||| !s3_behind)).as_bits().zext(index_width(window_depth + 3))
+  def issue_index = mux(concurrent, parked, Index(0)) + (s3_demand_live & (concurrent ||| !s3_behind)).as_bits().zext(Index.width)
   def Array(enqueue, issue_parent) = authorized |> atomic_fork(2)
   enqueue |> service_requests.ingress
   issue_parent.ready <== Bool(#true)
   def Array(head, management_endpoint) = service_requests.egress |> demux_flow(2, request => request.access.into(CacheOperation).is_cache_management().as_bits())
   head.ready <== retire_head
-  def next_request = service_requests.entries[issue_index[0..index_width(window_depth + 1)]]
+  service_requests.issue_offset <== issue_index[0..index_width(DemandEntries)]
+  def next_request = service_requests.issue_request
   wire issue_ready: Bool
   // Pipeline the next head only if it too belongs to the replayable prefix.
   def may_issue = !replay_head ||| ((issue_index < parked) & replayable_demand(next_request))
-  def ordinary_endpoint = inject_interface(Decoupled(Request), ~valid: may_issue & (issue_index < service_requests.count.zext(index_width(window_depth + 3))) & !next_request.access.into(CacheOperation).is_cache_management(), ~bits: next_request, ~ready: issue_ready)
-  def selected = for List (i in 0..(window_depth + 1)): issue_index === Index(i)
-  describe_interface_window_storage(window_depth + 1, service_requests.ingress.fire(), dequeue_demand.as_bits().zext(index_width(window_depth + 2)), service_requests.count, Bool(#false), selected, ~name: "demand")
+  def ordinary_endpoint = inject_interface(Decoupled(Request), ~valid: may_issue & (issue_index < service_requests.count) & !next_request.access.into(CacheOperation).is_cache_management(), ~bits: next_request, ~ready: issue_ready)
+  def selected = for List (i in 0..DemandEntries): issue_index === Index(i)
+  describe_interface_window_storage(DemandEntries, service_requests.ingress.fire(), dequeue_demand.as_bits().zext(Index.width), service_requests.count, Bool(#false), selected, ~name: "demand")
   describe_interface_contract(issue_parent, ordinary_endpoint, "demand-issue", ~trace_model: interface_trace_window(~name: "demand"))
   def ordinary_requests :: Endpoint = ordinary_endpoint
   def management_requests :: Endpoint = management_endpoint
@@ -1108,7 +1108,7 @@ sync_circuit BankedL1DCache(xlen :: XLen,
      authorized work. A held CHI packet is not a grant on any SRAM bank. */
   def tag_bits = index_width(math.min(4, sets))
   def live = core.request.bits.into(PhysicalMemoryBeatReq(xlen, Context, beat_bytes))
-  def first_turn = !pipeline_lookup.valid & core.request.fire() & live.access.is_load_or_store() & (live.locality === RiscvMemoryLocality.Default) & (!service_requests.egress.valid ||| ((service_requests.count === Bits(index_width(window_depth + 2))(1)) & retire_head))
+  def first_turn = !pipeline_lookup.valid & core.request.fire() & live.access.is_load_or_store() & (live.locality === RiscvMemoryLocality.Default) & (!service_requests.egress.valid ||| ((service_requests.count === Index(1)) & retire_head))
   def demand_address = mux(first_turn, live.address, pipeline_lookup.bits.address)
   def demand_set = demand_address[offset_width..(offset_width + set_width)]
   def demand_row = demand_address[row_offset_width..(offset_width + set_width)]
@@ -1122,11 +1122,9 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   def demand_issue = s0_read_issue ||| first_issue
   // A speculative load may pass ordinary ordered requests only in other
   // sets. Committed store bytes are checked again at physical resolution.
-  def independent_window = for List (i in 0..(window_depth + 1)):
-    def entry :: PhysicalMemoryBeatReq(xlen, Context, beat_bytes) = service_requests.entries[i]
-    !service_requests.mask[i].into(Bool) ||| (entry.access.is_load_or_store() & (entry.address[offset_width..(offset_width + set_width)] =/= s0_set))
+  service_requests.probe_set <== s0_set
   def incoming_clear = !core.request.valid ||| (live.access.is_load_or_store() & (live.address[offset_width..(offset_width + set_width)] =/= s0_set))
-  independent_demand <== incoming_clear & s0_load & !reserved_set(s0_set) & !snoop_pending & !maintenance_active & !pending_mutation_valid & (!miss_active ||| miss_allows_hits) & (!s4_valid ||| (s4_access.is_load_or_store() & (s0_set =/= retained_set))) & (!s3_lookup.egress.valid ||| (s3_request.access.into(CacheOperation).is_load_or_store() & (s0_set =/= s3_set))) & vec(independent_window).as_bits().all()
+  independent_demand <== incoming_clear & s0_load & !reserved_set(s0_set) & !snoop_pending & !maintenance_active & !pending_mutation_valid & (!miss_active ||| miss_allows_hits) & (!s4_valid ||| (s4_access.is_load_or_store() & (s0_set =/= retained_set))) & (!s3_lookup.egress.valid ||| (s3_request.access.into(CacheOperation).is_load_or_store() & (s0_set =/= s3_set))) & service_requests.independent
   def DemandTags = ReadWriteRequest(set_width, Bits(tag_width), ways)
   def DemandStates = ReadWriteRequest(set_width, CHICacheState, ways)
   def DataRequest = ReadWriteRequest(data_address_width, Bits(8), data_lanes)
