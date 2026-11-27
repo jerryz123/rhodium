@@ -8,6 +8,15 @@
 #include <limits>
 
 namespace rheg {
+const Field* Manifest::phase_field(std::uint32_t site) const {
+  if (!phased_sites.count(site) || site >= fields.size()) return nullptr;
+  const auto& captures = fields[site];
+  const auto phase = std::find_if(captures.begin(), captures.end(), [](const Field& field) {
+    return field.name == "phase" && field.encoding == "enum" && field.label;
+  });
+  return phase == captures.end() ? nullptr : &*phase;
+}
+
 /* Checks compiler field layouts and scope ancestry before accepting callbacks;
    instruction ISA parsing remains the optional exporter's responsibility. */
 void validate_capture_schema(const Manifest& manifest) {
@@ -44,6 +53,9 @@ void validate_capture_schema(const Manifest& manifest) {
   if (prefixes.size() != manifest.instances.size()) throw std::runtime_error("unused instance scope");
   for (auto site : manifest.residency_sites)
     if (site >= manifest.payload_widths.size()) throw std::runtime_error("unknown residency site");
+  for (auto site : manifest.phased_sites)
+    if (!manifest.residency_sites.count(site) || !manifest.phase_field(site))
+      throw std::runtime_error("phase schema requires a residency site with a labeled phase enum");
   if (manifest.fields.empty()) return; // Legacy snapshots remain readable.
   if (manifest.fields.size() != manifest.payload_widths.size())
     throw std::runtime_error("capture schema site count mismatch");
@@ -182,7 +194,7 @@ Graph& graph() { static Graph value; return value; }
 /* Drops occurrences outside streaming while retaining manifest, timing, and scope bindings. */
 void Graph::clear() {
   if (streaming_) throw std::runtime_error("end event stream before clearing graph");
-  nodes.clear(); edges.clear();
+  nodes.clear(); edges.clear(); phases_.clear();
 }
 /* Registers a scope once per epoch, enforcing width and stream watermark constraints. */
 void Graph::record_instance(std::uint32_t scope, std::uint64_t value, std::uint64_t cycle) {
@@ -206,7 +218,7 @@ static void validate_instances(const std::map<Ref, Node>& nodes, const Manifest*
 }
 /* Captures the empty epoch header before enabling pending callback accumulation. */
 Snapshot Graph::begin_stream() {
-  if (streaming_ || !nodes.empty() || !edges.empty() || !instances_.empty())
+  if (streaming_ || !nodes.empty() || !edges.empty() || !instances_.empty() || !phases_.empty())
     throw std::runtime_error("event stream requires an empty graph and no active stream");
   if (!timing_) throw std::runtime_error("event stream requires bound timing");
   auto header = snapshot();
@@ -218,10 +230,25 @@ Snapshot Graph::begin_stream() {
 /* Leaves the captured graph intact, requiring all pending deltas to be drained first. */
 void Graph::end_stream() {
   if (!streaming_) throw std::runtime_error("no active event stream");
-  if (!pending_nodes_.empty() || !pending_edges_.empty() || !pending_ends_.empty() || !pending_instances_.empty())
+  if (!pending_nodes_.empty() || !pending_edges_.empty() || !pending_ends_.empty() || !pending_instances_.empty() || !pending_phases_.empty())
     throw std::runtime_error("finish event cycle before ending stream");
   streaming_ = false;
   finished_cycle_.reset();
+}
+/* Checks only supplied phase updates against the retained occurrence bounds. */
+static void validate_phases(const PhaseUpdates& phases, const std::map<Ref, Node>& nodes,
+                            std::optional<std::uint64_t> watermark = {}, std::uint64_t through = UINT64_MAX) {
+  for (const auto& [ref, changes] : phases) {
+    const auto node = nodes.find(ref);
+    if (node == nodes.end() || !node->second.present)
+      throw std::runtime_error("residency phase has no begin");
+    for (const auto& [cycle, value] : changes) {
+      if (cycle <= node->second.cycle || cycle - node->second.cycle == 1 ||
+          (node->second.end_cycle && cycle > *node->second.end_cycle) ||
+          cycle > through || (watermark && cycle <= *watermark))
+        throw std::runtime_error("invalid residency phase cycle");
+    }
+  }
 }
 /* Validates only the pending delta against retained parents and a settled watermark;
    pending state is cleared only after validation succeeds. */
@@ -229,7 +256,7 @@ CycleBatch Graph::finish_cycle(std::uint64_t cycle) {
   if (!streaming_) throw std::runtime_error("no active event stream");
   if (finished_cycle_ && cycle <= *finished_cycle_)
     throw std::runtime_error("event stream cycle must increase");
-  CycleBatch batch{cycle, {}, pending_edges_, pending_ends_, pending_instances_};
+  CycleBatch batch{cycle, {}, pending_edges_, pending_ends_, pending_instances_, pending_phases_};
   for (const auto& [scope, value] : batch.instances)
     if (value.cycle > cycle || (finished_cycle_ && value.cycle <= *finished_cycle_))
       throw std::runtime_error("instance outside unfinished cycle interval");
@@ -249,13 +276,16 @@ CycleBatch Graph::finish_cycle(std::uint64_t cycle) {
   for (const auto& [ref, end] : batch.ends) {
     if (!nodes.count(ref) || !nodes.at(ref).present || end <= nodes.at(ref).cycle ||
         end > cycle || (finished_cycle_ && end <= *finished_cycle_) ||
-        (manifest_ && !manifest_->residency_sites.count(ref.site)))
+        (manifest_ && !manifest_->residency_sites.count(ref.site)) ||
+        (phases_.count(ref) && phases_.at(ref).rbegin()->first > end))
       throw std::runtime_error("invalid residency end");
   }
+  validate_phases(batch.phases, nodes, finished_cycle_, cycle);
   pending_nodes_.clear();
   pending_edges_.clear();
   pending_ends_.clear();
   pending_instances_.clear();
+  pending_phases_.clear();
   finished_cycle_ = cycle;
   return batch;
 }
@@ -316,6 +346,7 @@ static void validate_entries(const std::map<Ref, Node>& nodes,
 void Graph::validate() const {
   validate_entries(nodes, edges, nodes, manifest_.get());
   validate_instances(nodes, manifest_.get(), instances_);
+  validate_phases(phases_, nodes);
 }
 /* Requires a compiler descriptor and copies the validated graph into an immutable view. */
 Snapshot Graph::snapshot() const {
@@ -336,6 +367,20 @@ static std::string instances_json(const std::map<std::uint32_t, InstanceValue>& 
   }
   return result + ']';
 }
+/* Serializes full or pending phase boundaries with exact 64-bit values. */
+static std::string phases_json(const PhaseUpdates& phases) {
+  if (phases.empty()) return "";
+  std::string result = ",\"phases\":[";
+  bool comma = false;
+  for (const auto& [ref, changes] : phases)
+    for (const auto& [cycle, value] : changes) {
+      if (comma) result += ',';
+      comma = true;
+      result += "{\"site\":" + std::to_string(ref.site) + ",\"sequence\":\"" + std::to_string(ref.sequence) +
+                "\",\"cycle\":\"" + std::to_string(cycle) + "\",\"value\":\"" + std::to_string(value) + "\"}";
+    }
+  return result + ']';
+}
 /* Wraps exact occurrences and compiler metadata in the trace envelope. */
 std::string Snapshot::json() const {
   std::string metadata;
@@ -350,7 +395,8 @@ std::string Snapshot::json() const {
 }
 /* Serializes stable site/sequence identities, payload words, and parent-child references. */
 static std::string occurrences_json(const std::map<Ref, Node>& nodes,
-                                    const std::set<std::pair<Ref, Ref>>& edges) {
+                                    const std::set<std::pair<Ref, Ref>>& edges,
+                                    const PhaseUpdates& phases = {}) {
   std::ostringstream out;
   // Sequences and cycles are decimal strings: JS consumers must not round
   // 64-bit identities to floating-point numbers.
@@ -380,13 +426,13 @@ static std::string occurrences_json(const std::map<Ref, Node>& nodes,
     out << "{\"parent\":[" << edge.first.site << ",\"" << edge.first.sequence
         << "\"],\"child\":[" << edge.second.site << ",\"" << edge.second.sequence << "\"]}";
   }
-  out << "]}\n";
+  out << "]" << phases_json(phases) << "}\n";
   return out.str();
 }
 /* Validates and emits occurrence JSON without adding snapshot metadata. */
 std::string Graph::json() const {
   validate();
-  return occurrences_json(nodes, edges);
+  return occurrences_json(nodes, edges, phases_);
 }
 /* Encodes one settled delta, including releases of owners from earlier batches. */
 std::string CycleBatch::json() const {
@@ -400,7 +446,7 @@ std::string CycleBatch::json() const {
   }
   return "{\"format\":\"rhodium-event-cycle\",\"cycle\":\"" +
          std::to_string(cycle) + "\",\"occurrences\":" + occurrences +
-         (ends.empty() ? "" : ",\"ends\":[" + endings + "]") + instances_json(instances) + "}\n";
+         (ends.empty() ? "" : ",\"ends\":[" + endings + "]") + instances_json(instances) + phases_json(phases) + "}\n";
 }
 /* Accepts one residency release, even before its begin callback or after its begin was streamed. */
 void Graph::record_end(Ref ref, std::uint64_t cycle) {
@@ -411,6 +457,18 @@ void Graph::record_end(Ref ref, std::uint64_t cycle) {
   node.end_cycle = cycle;
   started_ = epoch_active_ = true;
   if (streaming_) pending_ends_.emplace(ref, cycle);
+}
+/* Adds an identity-scoped phase boundary, allowing callback order within a batch. */
+void Graph::record_phase(Ref ref, std::uint64_t cycle, std::uint64_t value) {
+  const auto* field = manifest_ ? manifest_->phase_field(ref.site) : nullptr;
+  if (!field || (field->width < 64 && value >= (std::uint64_t(1) << field->width)))
+    throw std::runtime_error("invalid residency phase site or value");
+  if (streaming_ && finished_cycle_ && cycle <= *finished_cycle_)
+    throw std::runtime_error("residency phase cycle already streamed");
+  if (!phases_[ref].emplace(cycle, value).second)
+    throw std::runtime_error("duplicate residency phase cycle");
+  if (streaming_) pending_phases_[ref].emplace(cycle, value);
+  started_ = epoch_active_ = true;
 }
 /* Fills occurrence metadata once, rejecting duplicate nodes and backdated streamed activity. */
 void Graph::record_node(Ref ref, std::uint64_t cycle, std::uint32_t width) {
@@ -467,7 +525,7 @@ void Graph::reset(bool active) {
         throw std::runtime_error("event epoch identity exhausted");
       ++timing_->epoch_id;
     }
-    nodes.clear(); edges.clear();
+    nodes.clear(); edges.clear(); phases_.clear(); pending_phases_.clear();
     instances_.clear(); pending_instances_.clear();
     epoch_active_ = false;
   } else {
@@ -496,6 +554,10 @@ extern "C" void rheg_unknown(std::uint32_t site, std::uint64_t sequence) {
 /* Forwards the hardware release cycle of a residency occurrence. */
 extern "C" void rheg_end(std::uint32_t site, std::uint64_t sequence, std::uint64_t cycle) {
   rheg::graph().record_end({site, sequence}, cycle);
+}
+/* Forwards one hardware-observed phase change on the active resident identity. */
+extern "C" void rheg_phase(std::uint32_t site, std::uint64_t sequence, std::uint64_t cycle, std::uint64_t value) {
+  rheg::graph().record_phase({site, sequence}, cycle, value);
 }
 /* Forwards one least-significant-word-first payload chunk without interpreting its schema. */
 extern "C" void rheg_payload(std::uint32_t site, std::uint64_t sequence,

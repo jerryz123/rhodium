@@ -18,6 +18,9 @@ namespace rheg {
 struct Ref {
   std::uint32_t site;
   std::uint64_t sequence;
+  bool operator==(const Ref& other) const {
+    return site == other.site && sequence == other.sequence;
+  }
   /* Orders identities deterministically by site, then sequence, not occurrence time. */
   bool operator<(const Ref& other) const {
     return std::tie(site, sequence) < std::tie(other.site, other.sequence);
@@ -86,6 +89,9 @@ struct Manifest {
   std::set<std::uint32_t> residency_sites = {};
   std::vector<InstanceScope> instances = {};
   std::vector<std::vector<std::uint32_t>> site_instances = {};
+  std::set<std::uint32_t> phased_sites = {};
+  /* Resolves the phase enum descriptor for a phased residency site. */
+  const Field* phase_field(std::uint32_t site) const;
 };
 /* Checks complete capture layouts, encodings, enum symbols, and instance ancestry. */
 void validate_capture_schema(const Manifest& manifest);
@@ -95,6 +101,8 @@ struct TraceTiming {
   std::uint64_t clock_frequency_hz = 0;
   std::uint64_t epoch_id = 0;
 };
+/* Maps a resident occurrence and sampled cycle to the newly observed enum value. */
+using PhaseUpdates = std::map<Ref, std::map<std::uint64_t, std::uint64_t>>;
 /* Owns a settled stream delta through cycle, including late residency-end updates.
    Edges may refer to old parents retained by the collector and writer. */
 struct CycleBatch {
@@ -103,6 +111,7 @@ struct CycleBatch {
   std::set<std::pair<Ref, Ref>> edges;
   std::map<Ref, std::uint64_t> ends = {};
   std::map<std::uint32_t, InstanceValue> instances = {};
+  PhaseUpdates phases = {};
   /* Serializes the delta with exact decimal-string cycles and sequences. */
   std::string json() const;
 };
@@ -138,6 +147,8 @@ struct Graph {
   void record_unknown(Ref ref);
   /* Records one residency release, including releases of previously streamed owners. */
   void record_end(Ref ref, std::uint64_t cycle);
+  /* Records a phase change on an existing residency identity. */
+  void record_phase(Ref ref, std::uint64_t cycle, std::uint64_t value);
   /* Adds an exact parent-child edge; streamed parents may acquire new children. */
   void record_edge(Ref parent, Ref child);
   /* Binds a declared scope once per epoch with a width-checked runtime identity. */
@@ -160,6 +171,7 @@ private:
   std::map<Ref, std::uint64_t> pending_ends_;
   std::map<std::uint32_t, InstanceValue> instances_;
   std::map<std::uint32_t, InstanceValue> pending_instances_;
+  PhaseUpdates phases_, pending_phases_;
 };
 /* Owns a validated copy: later collector callbacks and reset cannot change this view. */
 class Snapshot {
@@ -174,6 +186,8 @@ public:
   const std::optional<TraceTiming>& timing() const { return graph_.timing_; }
   /* Returns this epoch's registered runtime instance identities. */
   const std::map<std::uint32_t, InstanceValue>& instances() const { return graph_.instances_; }
+  /* Returns every observed phase change in the captured epoch. */
+  const PhaseUpdates& phases() const { return graph_.phases_; }
   /* Serializes the trace envelope with manifest, occurrences, and timing. */
   std::string json() const;
   /* Extracts a named capture without consulting the live collector. */
@@ -198,6 +212,8 @@ void rheg_instance(std::uint32_t scope, std::uint64_t value, std::uint64_t cycle
 void rheg_unknown(std::uint32_t site, std::uint64_t sequence);
 /* Reports the release cycle of a captured residency owner. */
 void rheg_end(std::uint32_t site, std::uint64_t sequence, std::uint64_t cycle);
+/* Reports the observed phase of the same resident occurrence. */
+void rheg_phase(std::uint32_t site, std::uint64_t sequence, std::uint64_t cycle, std::uint64_t value);
 /* Reports a site occurrence's cycle and compact capture width. */
 void rheg_node(std::uint32_t site, std::uint64_t sequence,
                         std::uint64_t cycle, std::uint32_t width);

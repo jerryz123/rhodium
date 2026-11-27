@@ -92,6 +92,12 @@ Open residency slices intentionally stay incomplete at export end. Test live/
 replay/gzip parity, alternate modes, old-owner descendants, malformed releases,
 and native durations/flow attachment.
 
+Phase updates use the same owner reference, with one value per observed
+cycle. Validate the sampled cycle against the owner's admission/release
+bounds and the streaming watermark. A phase observed on the release edge
+opens before the release closes it one cycle later. Split the display
+interval at each phase update and keep the graph's node and edges intact.
+
 ## Perfetto encoding
 
 `PerfettoWriter` accepts typed settled batches. `read_event_trace` parses saved

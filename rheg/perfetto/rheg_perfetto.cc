@@ -119,6 +119,7 @@ Description describe(const Json& json, const PerfettoTrackGroups& track_groups =
     const auto& display = result.sites.back();
     require(display.kind == "transfer" || display.kind == "stall" || display.kind == "residency", "unsupported event kind");
     if (display.kind == "residency") result.manifest.residency_sites.insert(result.sites.size() - 1);
+    if (site.value("phased", false)) result.manifest.phased_sites.insert(result.sites.size() - 1);
     require((display.kind == "stall") == !display.observation_of.empty(), "stall requires observation_of; transfer must not observe another site");
     const auto& width = site.at("payload_width");
     result.manifest.payload_widths.push_back(width == Json(false) ? 0 : number(width, UINT32_MAX));
@@ -478,7 +479,14 @@ struct PerfettoWriter::Impl {
   std::optional<std::uint64_t> watermark;
   bool failed = false;
   bool finished = false;
-  std::map<std::uint32_t, Ref> residencies;
+  /* Keeps the owner and the current slice boundary. Only phased residents need
+     their original captures again when the next slice opens. */
+  struct ResidencyRun {
+    Ref owner;
+    std::uint64_t start_edge;
+    std::optional<Node> captures;
+  };
+  std::map<std::uint32_t, ResidencyRun> residencies;
   std::map<std::uint32_t, InstanceValue> instances;
   std::map<std::uint32_t, std::pair<std::uint64_t, std::uint64_t>> instance_tracks;
   std::unique_ptr<GzipEncoder> gzip;
@@ -493,6 +501,7 @@ struct PerfettoWriter::Impl {
             description.manifest.dependencies == manifest.dependencies &&
             description.manifest.fields == manifest.fields &&
             description.manifest.residency_sites == manifest.residency_sites &&
+            description.manifest.phased_sites == manifest.phased_sites &&
             description.manifest.instances == manifest.instances &&
             description.manifest.site_instances == manifest.site_instances, "manifest descriptor differs from JSON");
     for (const auto& fields : manifest.fields)
@@ -570,6 +579,7 @@ struct PerfettoWriter::Impl {
                    {"source_location", description.sites[i].source},
                    {"payload_width", description.manifest.payload_widths[i]}};
       site["kind"] = description.sites[i].kind;
+      if (manifest.phased_sites.count(i)) site["phased"] = true;
       if (!manifest.site_instances.empty()) site["instances"] = manifest.site_instances[i];
       if (description.gaps.count(i)) site["ancestry_gaps"] = description.gaps.at(i);
       if (description.sites[i].kind == "stall") site["observation_of"] = description.sites[i].observation_of;
@@ -668,6 +678,49 @@ struct PerfettoWriter::Impl {
     integer(legacy, 2, phase); integer(legacy, 6, id); integer(legacy, 12, 1);
     bytes(fields, 6, legacy); event(stream, interns, ref, cycle, fields);
   }
+  /* Formats any occurrence slice, optionally substituting a later phase for
+     the immutable phase captured at admission. */
+  std::string slice_begin(PendingInterns& interns, Ref ref, const Node& node,
+                          std::optional<std::uint64_t> phase = {}) {
+    std::string fields, mnemonic, selected_label;
+    integer(fields, 9, 1);
+    std::size_t instruction_count = 0;
+    interns.reference(fields, 3, 22, InternedStrings::Category, "rhodium.event");
+    annotation(fields, interns, "sequence", std::to_string(ref.sequence), false);
+    annotation(fields, interns, "cycle", std::to_string(node.cycle), false);
+    if (node.ancestry_unknown) annotation(fields, interns, "ancestry_unknown", "true", true);
+    if (!description.manifest.fields.empty()) {
+      for (const auto& field : description.manifest.fields[ref.site]) {
+        if (phase && field.name == "phase") {
+          FieldValue value{field.width, field.encoding, {static_cast<std::uint32_t>(*phase)}};
+          if (field.width > 32) value.words.push_back(static_cast<std::uint32_t>(*phase >> 32));
+          selected_label = enum_text(field, value);
+          annotation(fields, interns, field.name, selected_label);
+        } else if (field.encoding == "riscv") {
+          const auto assembly = instructions.render(field, node, description.manifest.fields[ref.site]);
+          annotation(fields, interns, field.name, assembly);
+          mnemonic = assembly.substr(0, assembly.find(' '));
+          ++instruction_count;
+        } else {
+          capture_annotation(fields, interns, field, node);
+          if (field.label) selected_label = enum_text(field, capture_field(node, field));
+        }
+      }
+    } else {
+      std::vector<std::uint32_t> words;
+      for (auto word : node.words) words.push_back(word.second);
+      annotation(fields, interns, "payload_words_lsw_first", Json(words).dump());
+    }
+    const auto& site_label = description.sites[ref.site].track_name;
+    const auto separator = site_label.rfind('.');
+    const auto default_name = separator != std::string::npos && separator + 1 < site_label.size()
+        ? site_label.substr(separator + 1) : site_label;
+    interns.reference(fields, 10, 23, InternedStrings::Name,
+                      description.sites[ref.site].kind == "stall" ? "stall" :
+                      !selected_label.empty() ? selected_label :
+                      instruction_count == 1 ? mnemonic : default_name);
+    return fields;
+  }
   /* Closes selected stall runs in deterministic end-cycle/track order, retaining exact cycle counts. */
   template<class Predicate>
   void close_stalls(std::string& stream, PendingInterns& interns,
@@ -736,24 +789,32 @@ struct PerfettoWriter::Impl {
       for (auto child : children[ref]) if (!--indegree[child]) ready.emplace(batch.nodes.at(child).cycle, child);
     }
     require(order.size() == batch.nodes.size(), "cyclic same-cycle dependencies");
-    /* Represents a registration, residency release, or occurrence at a hardware cycle boundary. */
-    struct Action { Ref ref; std::uint64_t cycle; bool end; bool instance = false; };
+    /* Close the previous phase before release or replacement at the same hardware cycle. */
+    enum class ActionKind { Phase, End, Instance, Begin };
+    struct Action { Ref ref; std::uint64_t cycle; ActionKind kind; std::uint64_t value = 0; };
     std::vector<Action> actions;
-    for (const auto& [scope, value] : batch.instances) actions.push_back({{scope, 0}, value.cycle, false, true});
-    for (auto ref : order) actions.push_back({ref, batch.nodes.at(ref).cycle, false});
+    for (const auto& [scope, value] : batch.instances) actions.push_back({{scope, 0}, value.cycle, ActionKind::Instance});
+    for (auto ref : order) actions.push_back({ref, batch.nodes.at(ref).cycle, ActionKind::Begin});
     for (const auto& [ref, end] : batch.ends) {
       require(ref.site < description.sites.size() && description.manifest.residency_sites.count(ref.site), "end requires residency site");
       require(batch.nodes.count(ref) || known.count(ref), "residency end has no begin");
       const auto begin = batch.nodes.count(ref) ? batch.nodes.at(ref).cycle : known.at(ref).second;
       require(end > begin && end <= batch.cycle && (!watermark || end > *watermark), "invalid residency end cycle");
       timestamp(static_cast<__uint128_t>(end) + 1);
-      actions.push_back({ref, end, true});
+      actions.push_back({ref, end, ActionKind::End});
+    }
+    for (const auto& [ref, changes] : batch.phases) {
+      const auto* field = description.manifest.phase_field(ref.site);
+      require(field, "phase requires phased residency site");
+      for (const auto& [cycle, value] : changes) {
+        require(field->width == 64 || value < (std::uint64_t(1) << field->width), "invalid residency phase value");
+        require(cycle <= batch.cycle && (!watermark || cycle > *watermark), "phase outside unfinished cycle interval");
+        actions.push_back({ref, cycle, ActionKind::Phase, value});
+      }
     }
     std::stable_sort(actions.begin(), actions.end(), [](const Action& a, const Action& b) {
       if (a.cycle != b.cycle) return a.cycle < b.cycle;
-      /* Orders releases before registrations before begins at the same hardware cycle. */
-      const auto rank = [](const Action& action) { return action.end ? 0 : action.instance ? 1 : 2; };
-      return rank(a) < rank(b);
+      return a.kind < b.kind;
     });
     std::map<Ref, std::pair<std::uint64_t, std::uint64_t>> additions;
     PendingInterns interns(strings);
@@ -781,7 +842,7 @@ struct PerfettoWriter::Impl {
                              });
         });
       }
-      if (action.instance) {
+      if (action.kind == ActionKind::Instance) {
         const auto& scope = description.manifest.instances.at(ref.site);
         const auto [uuid, parent] = instance_tracks.at(ref.site);
         std::string descriptor, pkt;
@@ -793,16 +854,23 @@ struct PerfettoWriter::Impl {
         continue;
       }
       const auto track = description.track_sites[ref.site];
-      if (action.end) {
+      if (action.kind == ActionKind::End || action.kind == ActionKind::Phase) {
         const auto resident = next_residencies.find(track);
-        require(resident != next_residencies.end() && resident->second.site == ref.site && resident->second.sequence == ref.sequence,
-                "residency end does not match active owner");
+        require(resident != next_residencies.end() && resident->second.owner.site == ref.site && resident->second.owner.sequence == ref.sequence,
+                action.kind == ActionKind::End ? "residency end does not match active owner" : "residency phase does not match active owner");
+        auto& run = resident->second;
+        const bool phase = action.kind == ActionKind::Phase;
+        require(action.cycle > run.start_edge && (!phase || (run.captures && action.cycle - run.start_edge > 1)),
+                "invalid residency phase or end boundary");
+        const auto end_edge = action.cycle - (phase ? 1 : 0);
         std::string fields;
         integer(fields, 9, 2);
-        const auto begin = additions.count(ref) ? additions.at(ref).second : known.at(ref).second;
-        duration_annotation(fields, interns, action.cycle - begin);
-        event(stream, interns, ref, static_cast<__uint128_t>(action.cycle) + 1, fields);
-        next_residencies.erase(resident);
+        duration_annotation(fields, interns, end_edge - run.start_edge);
+        event(stream, interns, ref, static_cast<__uint128_t>(end_edge) + 1, fields);
+        if (phase) {
+          event(stream, interns, ref, action.cycle, slice_begin(interns, ref, *run.captures, action.value));
+          run.start_edge = end_edge;
+        } else next_residencies.erase(resident);
         continue;
       }
       const auto& node = batch.nodes.at(ref);
@@ -816,59 +884,24 @@ struct PerfettoWriter::Impl {
         run.last = ref; run.node.cycle = node.cycle;
         continue;
       }
-      std::string fields;
-      integer(fields, 9, 1);
-      std::string mnemonic;
-      std::string selected_label;
-      std::size_t instruction_count = 0;
-      interns.reference(fields, 3, 22, InternedStrings::Category, "rhodium.event");
-      // Unique counters remain exact decimal strings, without filling the dictionary.
-      annotation(fields, interns, "sequence", std::to_string(ref.sequence), false);
-      annotation(fields, interns, "cycle", std::to_string(node.cycle), false);
-      if (node.ancestry_unknown) annotation(fields, interns, "ancestry_unknown", "true", true);
-      if (!description.manifest.fields.empty()) {
-        for (const auto& field : description.manifest.fields[ref.site]) {
-          if (field.encoding == "riscv") {
-            const auto assembly = instructions.render(field, node, description.manifest.fields[ref.site]);
-            annotation(fields, interns, field.name, assembly);
-            mnemonic = assembly.substr(0, assembly.find(' '));
-            ++instruction_count;
-          }
-          else capture_annotation(fields, interns, field, node);
-          if (field.label) {
-            selected_label = enum_text(field, capture_field(node, field));
-          }
-        }
-      } else {
-        // Payloads without named-field metadata use raw display.
-        std::vector<std::uint32_t> words;
-        for (auto word : node.words) words.push_back(word.second);
-        annotation(fields, interns, "payload_words_lsw_first", Json(words).dump());
-      }
-      // Shorten only default slice labels; tracks and decoded opcodes retain their names.
-      const auto& site_label = description.sites[ref.site].track_name;
-      const auto separator = site_label.rfind('.');
-      const auto default_name = separator != std::string::npos && separator + 1 < site_label.size()
-          ? site_label.substr(separator + 1) : site_label;
-      // Stalls retain captures but never use instruction/transaction slice names.
-      interns.reference(fields, 10, 23, InternedStrings::Name,
-                        description.sites[ref.site].kind == "stall" ? "stall" :
-                        !selected_label.empty() ? selected_label :
-                        instruction_count == 1 ? mnemonic : default_name);
       // A capture edge writes the owner register; the next sampled cycle first
       // observes that descriptor. Keep the graph's admission cycle unchanged.
       const auto display_cycle = static_cast<__uint128_t>(node.cycle) +
           (description.sites[ref.site].kind == "residency" ? 1 : 0);
-      event(stream, interns, ref, display_cycle, fields);
+      event(stream, interns, ref, display_cycle, slice_begin(interns, ref, node));
       for (auto parent : parents[ref]) {
         const auto identity = additions.count(parent) ? additions.at(parent).first : known.at(parent).first;
         flow(stream, interns, ref, display_cycle, 'f', identity);
       }
       if (can_parent[ref.site]) flow(stream, interns, ref, display_cycle, 's', id);
       if (stall) next_stalls.emplace(track, StallRun{ref, node, parents[ref], node.cycle});
-      else if (description.sites[ref.site].kind == "residency") next_residencies.emplace(track, ref);
+      else if (description.sites[ref.site].kind == "residency") {
+        next_residencies.emplace(track, ResidencyRun{ref, node.cycle,
+            description.manifest.phased_sites.count(ref.site) ? std::optional<Node>(node) : std::nullopt});
+      }
       else {
-        fields.clear(); integer(fields, 9, 2);
+        std::string fields;
+        integer(fields, 9, 2);
         event(stream, interns, ref, static_cast<__uint128_t>(node.cycle) + 1, fields);
       }
     }
@@ -942,6 +975,13 @@ Snapshot read_event_trace(std::istream& input) {
     for (const auto& word : node.at("words")) graph.record_payload(ref, index++, number(word, UINT32_MAX));
   }
   for (const auto& edge : occurrences.at("edges")) graph.record_edge(ref(edge.at("parent")), ref(edge.at("child")));
+  if (occurrences.contains("phases")) {
+    require(occurrences.at("phases").is_array(), "residency phases must be an array");
+    for (const auto& item : occurrences.at("phases")) {
+      Ref owner{static_cast<std::uint32_t>(number(item.at("site"), UINT32_MAX)), number(item.at("sequence"))};
+      graph.record_phase(owner, number(item.at("cycle")), number(item.at("value")));
+    }
+  }
   return graph.snapshot();
 }
 /* Replays a snapshot as one complete delta through the same encoder used for live batches. */
@@ -950,6 +990,9 @@ void write_perfetto(std::ostream& output, const Snapshot& snapshot, PerfettoComp
   require(snapshot.timing().has_value(), "Perfetto export requires timing");
   CycleBatch batch{0, snapshot.nodes(), snapshot.edges()};
   batch.instances = snapshot.instances();
+  batch.phases = snapshot.phases();
+  for (const auto& [ref, changes] : batch.phases)
+    if (!changes.empty()) batch.cycle = std::max(batch.cycle, changes.rbegin()->first);
   for (const auto& [scope, value] : batch.instances) batch.cycle = std::max(batch.cycle, value.cycle);
   for (const auto& entry : batch.nodes) batch.cycle = std::max(batch.cycle, entry.second.cycle);
   for (const auto& [ref, node] : batch.nodes) if (node.end_cycle) {

@@ -167,6 +167,15 @@ as for other events; streaming reset retains the existing end-stream requirement
 An unfinished residency stays visibly open in Perfetto, rather than acquiring an
 invented release at export finalization. Residency cannot use `~stalls`.
 
+Pass `~phase: phase` to a scalar residency checkpoint to show the owner's
+progress on its existing track. Supply a local hardware enum that gives the
+first resident phase at admission and the current phase while occupied.
+The phase is captured at admission as the labeled `phase` field. Afterward,
+instrumentation records only changes, including a change on the release
+cycle. Every displayed phase slice belongs to the original occurrence and
+keeps its sequence and admission cycle. An open residency leaves its final
+phase slice open.
+
 For multiple independently allocated owners, use the same annotation with a
 named `describe_interface_retained_bank` declaration. A bank expands one
 checkpoint into `label[0]`, `label[1]`, etc., so concurrent owners have separate

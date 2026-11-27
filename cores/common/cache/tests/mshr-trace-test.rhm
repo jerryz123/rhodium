@@ -1,4 +1,5 @@
 #lang rhombus
+// Checks that each MSHR owns its refill and writeback phase tracks.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -17,6 +18,10 @@ check:
 
 for (scope in manifest.instances):
   def children = manifest.sites.filter(~keep: fun (site): site.instance_path.take(scope.path.length()) == scope.path)
-  def labels = children.map(fun (site): site.label)
+  def engines = children.filter(~keep: fun (site): site.label == "dcache/refill" || site.label == "dcache/writeback")
   check:
-    labels.filter(~keep: fun (label): label == "dcache/refill" || label == "dcache/writeback").sort() ~is ["dcache/refill", "dcache/writeback"]
+    engines.map(fun (site): site.label).sort() ~is ["dcache/refill", "dcache/writeback"]
+  for (site in engines):
+    check:
+      (site.kind == "residency" && site.phased) ~is #true
+      (site.fields.find(fun (field): field.name == "phase" && field.encoding == "enum" && field.label) != #false) ~is #true

@@ -321,6 +321,7 @@ fun instrument_events(logical :: DesignElaboration,
 
   def node_dpi = builder.dpi_import("rheg_node", ["site", "sequence", "cycle", "width"], [Bits(32), Bits(64), Bits(64), Bits(32)])
   def end_dpi = if manifest.sites.find(fun (site): site.kind == "residency") | builder.dpi_import("rheg_end", ["site", "sequence", "cycle"], [Bits(32), Bits(64), Bits(64)]) | #false
+  def phase_dpi = if manifest.sites.find(fun (site): site.phased) | builder.dpi_import("rheg_phase", ["site", "sequence", "cycle", "value"], [Bits(32), Bits(64), Bits(64), Bits(64)]) | #false
   def word_dpi = builder.dpi_import("rheg_payload", ["site", "sequence", "index", "word"], [Bits(32), Bits(64), Bits(32), Bits(32)])
   def edge_dpi = builder.dpi_import("rheg_edge", ["child", "child_sequence", "parent", "parent_sequence"], [Bits(32), Bits(64), Bits(32), Bits(64)])
   def reset_dpi = builder.dpi_import("rheg_reset", ["active"], [Bits(1)])
@@ -559,6 +560,16 @@ fun instrument_events(logical :: DesignElaboration,
         builder.assert(module_def, builder.bit_or(module_def, builder.bit_not(module_def, occupied), release), clock, reset, fire, ref_name("__event_residency_no_overwrite_", site))
         builder.assert(module_def, occupied, clock, reset, release, ref_name("__event_residency_release_", site))
         builder.dpi_call(module_def, end_dpi, [id, resident.current, cycle], clock, builder.bit_and(module_def, active, release))
+
+        when site.phased
+        | def source = annotation.fields[annotation.fields.length() - 1].value
+          def phase_type = Bits(source.type.packed_width())
+          def phase = builder.cast(module_def, copied.values[source.id], phase_type)
+          def previous = builder.register(module_def, ref_name("__event_phase_", site), phase_type, clock, reset, builder.constant(module_def, phase_type, 0))
+          def changed = builder.bit_not(module_def, builder.eq(module_def, phase, previous.current))
+          builder.drive(previous.next, builder.mux_lookup(module_def, builder.bit_or(module_def, capture, occupied), previous.current, [[1, phase]]))
+          def update = builder.bit_and(module_def, active, builder.bit_and(module_def, occupied, changed))
+          builder.dpi_call(module_def, phase_dpi, [id, resident.current, cycle, builder.zext(module_def, phase, 64)], clock, update)
 
       when annotation.payload
       | def packed = builder.cast(module_def, copied.values[annotation.payload.id], Bits(width))

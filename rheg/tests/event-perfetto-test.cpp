@@ -764,7 +764,42 @@ void residency(const std::string& path) {
     std::ofstream file(path+suffix,std::ios::binary); file << streamed.str(); file.close(); check(bool(file));
   }
 }
+/* Checks sparse phase boundaries on one track and one transaction across live and replay. */
+void phased_residency(const std::string& path) {
+  Manifest descriptor{
+      R"({"format":"rhodium-event-graph","top":"Phases","sites":[{"id":"owner","label":"dcache/refill","kind":"residency","phased":true,"payload_width":2,"fields":[{"name":"phase","encoding":"enum","width":2,"offset":0,"label":true,"symbols":[{"value":"0","name":"Issue"},{"value":"1","name":"Receive"},{"value":"2","name":"Complete"}]}]},{"id":"child","label":"done","payload_width":0,"fields":[]}],"dependencies":[{"parent":"owner","child":"child"}]})",
+      {2, 0}, {{0, 1}}, {{{"phase", 2, 0, "enum", {}, {}, {{0, "Issue"}, {1, "Receive"}, {2, "Complete"}}, true}}, {}},
+      {0}, {}, {}, {0}};
+  Graph graph; graph.bind_manifest(descriptor); graph.bind_timing({100000000});
+  graph.begin_stream();
+  std::ostringstream live;
+  PerfettoWriter writer(live, descriptor, {100000000});
+  const Ref owner{0, 0}, next{0, 1}, child{1, 0};
+  graph.record_node(owner, 0, 2); graph.record_payload(owner, 0, 0);
+  writer.write(graph.finish_cycle(0));
+  graph.record_phase(owner, 3, 1);
+  writer.write(graph.finish_cycle(3));
+  graph.record_end(owner, 6);
+  graph.record_phase(owner, 6, 2); // The release cycle still belongs to the old owner.
+  graph.record_node(next, 6, 2); graph.record_payload(next, 0, 0);
+  writer.write(graph.finish_cycle(6));
+  graph.record_node(child, 7, 0); graph.record_edge(owner, child);
+  writer.write(graph.finish_cycle(7));
+  graph.end_stream(); writer.finish();
+  const auto snapshot = graph.snapshot();
+  check(snapshot.nodes().size() == 3 && snapshot.edges().size() == 1 &&
+        snapshot.field(owner, "phase").unsigned_value() == 0);
+  check(snapshot.phases().at(owner) == std::map<std::uint64_t, std::uint64_t>{{3, 1}, {6, 2}});
+  check(flow_counts(live.str()) == std::make_pair(2U, 1U), "phase transitions emitted new flow identities");
+  std::istringstream saved(snapshot.json());
+  std::ostringstream replayed;
+  write_perfetto(replayed, read_event_trace(saved));
+  check(live.str() == replayed.str());
+  std::ofstream output(path, std::ios::binary); output << live.str(); output.close(); check(bool(output));
+}
+
 int main(int argc, char** argv) {
+  phased_residency(std::string(argv[1])+"/phased-residency.pftrace");
   residency(std::string(argv[1])+"/residency.pftrace");
   check(argc == 2);
   shared_tracks(std::string(argv[1])+"/shared-tracks.pftrace");

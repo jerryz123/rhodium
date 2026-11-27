@@ -1,3 +1,4 @@
+// Drives coherent refill and instruction snapshot traffic against the trace oracle.
 // SPDX-License-Identifier: Apache-2.0
 #include "test.hpp"
 #include "wide.hpp"
@@ -8,7 +9,7 @@ extern "C" void compack_sample(unsigned reset, unsigned command,
                                unsigned dpacket, unsigned ifire,
                                unsigned ipacket, unsigned dack, unsigned ddbid,
                                unsigned iack, unsigned idbid, unsigned stalled,
-                               unsigned dfinish, unsigned ifinish);
+                               unsigned dfinish, unsigned ifinish, unsigned drequest);
 extern "C" void compack_check();
 extern "C" void compack_finish();
 using rsp_t = std::remove_cvref_t<decltype(dack_out)>;
@@ -28,7 +29,8 @@ void tick() {
                  unsigned((dack_out.pvalid && !dack_in.pready) ||
                           (iack_out.pvalid && !iack_in.pready)),
                  unsigned(d_complete && completion_ready),
-                 unsigned(i_complete && completion_ready));
+                 unsigned(i_complete && completion_ready),
+                 unsigned(dreq_out.pvalid && dreq_in.pready));
   tick_model();
   compack_check();
 }

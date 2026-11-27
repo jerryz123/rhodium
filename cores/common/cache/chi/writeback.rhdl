@@ -21,6 +21,15 @@ bundle CacheLineWritebackCommand(Context :: DataType):
 bundle CacheLineWritebackResult(Context :: DataType):
   context: Context
 
+/* Names registered writeback progress for residency tracing. */
+hardware_enum CacheWritebackPhase:
+  IssueRequest
+  WaitRetryCredit
+  ReissueRequest
+  WaitCompDBIDResp
+  SendCopybackData
+  WaitCompletion
+
 /* Retries WriteBackFull while the victim remains snoop-visible; freezes its latest state at
    grant.
    After CompDBIDResp, sends every line packet and retains completion until accepted. */
@@ -56,7 +65,17 @@ sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, co
   reg response_state(Bits(3))
   reg cursor(~init: Bits(packet_width)(0))
   reg data_sent(~init: Bool(#false))
-  def returning = command |> trace_event("dcache/writeback", ~residency: "data", ~fields: _request):
+  granted <== CacheCopyBackResponses.milestone(control.received, "grant")
+
+  def phase :: CacheWritebackPhase = priority_mux(~default: CacheWritebackPhase.IssueRequest):
+    !control.active: CacheWritebackPhase.IssueRequest
+    data_sent: CacheWritebackPhase.WaitCompletion
+    granted: CacheWritebackPhase.SendCopybackData
+    control.attempt_outstanding: CacheWritebackPhase.WaitCompDBIDResp
+    !control.attempt.valid: CacheWritebackPhase.WaitRetryCredit
+    !control.attempt.bits.allow_retry: CacheWritebackPhase.ReissueRequest
+
+  def returning = command |> trace_event("dcache/writeback", ~residency: "data", ~phase: phase, ~fields: _request):
     address: line_address
 
   returning.ready <== !control.active
@@ -86,7 +105,6 @@ sync_circuit CacheLineWriteback(Context :: DataType, address_width :: PosInt, co
   def response = control.event.bits.flit
   grant.valid <== control.event.valid & CacheCopyBackResponses.milestone(control.event.bits.effects, "grant")
   grant.bits <== context
-  granted <== CacheCopyBackResponses.milestone(control.received, "grant")
   when (control.event.valid):
     assert(response.src_id === home_id, "copyback_response_home")
     assert(response.tgt_id === node_id, "copyback_response_target")

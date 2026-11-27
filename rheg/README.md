@@ -32,6 +32,7 @@ Its [header](runtime/rheg.h) defines the fixed ABI and `graph()` API:
 
 - `rheg_node` records a site, sequence, cycle, and payload width.
 - `rheg_end` closes that identity at a release cycle for a `residency` site.
+- `rheg_phase` records a phase change on a phased residency.
 - `rheg_payload` supplies zero-padded 32-bit words, least-significant
   word first, so arbitrary fixed-width packed payloads use the same ABI.
 - `rheg_edge` records an exact parent/child reference pair.
@@ -158,6 +159,15 @@ cycles, independent of nanosecond rounding. They are integers through `INT64_MAX
 and exact decimal strings above it. The exporter adds the argument at slice end,
 so unfinished intervals have no final count. Ordinary transfer slices omit it;
 event names, graph storage, and DPI callbacks are unchanged.
+
+Phased residency sites have `phased: true` and a labeled enum field named
+`phase`. That field holds the initial phase. Sparse `rheg_phase` callbacks
+add `phases` entries to saved occurrences and streaming deltas. Each entry
+identifies the original site and sequence, the cycle that observes the new
+phase, and the enum value. Perfetto partitions the occupancy into consecutive
+enum-named slices on the same track. Each slice reports its own
+`duration_cycles` and shares the original occurrence's other arguments.
+Flow arrows remain attached to the admission slice.
 
 ## Named captures
 

@@ -366,6 +366,13 @@ sequence before next-state capture. Reset clears both shadow registers and the
 normal occurrence epoch; never use a reset-suppressed end callback to order host
 reset. RHEG's existing streaming epoch boundary remains explicit.
 
+For a phased scalar residency, the annotated enum is both the admission
+capture and a live observation. Compare it with its last sampled value while
+occupied and emit `rheg_phase` using the retained owner's sequence. The value
+observed on a release edge still belongs to the old owner. A phase update
+uses its sampled cycle directly because it describes existing registered
+state. It creates no event graph node or lineage state.
+
 A bank residency expands into entry-scoped sites with a shared local
 annotation index and distinct `residency_index` values. Occurrence IDs and labels
 gain `[index]`; the existing native descriptor and end ABI remain unchanged.

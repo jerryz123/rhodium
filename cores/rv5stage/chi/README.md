@@ -97,6 +97,11 @@ where required, and held completion/cache-installation time. They are transactio
 lifetimes, not measurements of only CHI wire latency.
 
 Captures retain the line address and, for D-cache refill, the requested opcode.
+On each D-cache refill and writeback track, slices are named for the active
+phase, including request issue, retry-credit wait, reissue, data transfer,
+and completion wait. The refill track also shows CompAck, and the writeback
+track shows the wait for CompDBIDResp. All phases of one transaction share
+its occurrence identity.
 CHI channel events remain individual transfers, with outgoing requests inheriting
 the resident owner through Flow. The separate RXDAT-to-CompAck dependency is
 unchanged. There is no I-cache writeback: instruction snapshots are not dirty.

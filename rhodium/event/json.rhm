@@ -52,7 +52,7 @@ fun json_site(site :: EventSite):
     } ++ (if field.encoding == "riscv" | {"isa": field.isa, "pc": field.pc} | {}) ++ (if field.encoding == "enum" | {"symbols": field.symbols} | {}) ++ (if field.label | {"label": #true} | {})),
     "kind": site.kind,
     "source_location": site.source_location
-  } ++ (if site.observation_of | {"observation_of": site.observation_of} | {})
+  } ++ (if site.observation_of | {"observation_of": site.observation_of} | {}) ++ (if site.phased | {"phased": #true} | {})
 
 /* Serializes possible site pairs, transform witnesses, and fixed-or-unknown latency, omitting executable lineage plans. */
 fun json_dependency(dependency :: EventDependency):
@@ -121,6 +121,7 @@ fun event_manifest_to_cpp(manifest :: EventManifest):
 
   def widths = manifest.sites.map(fun (site): to_string(site.payload_width || 0))
   def residencies = (for List (index in 0..manifest.sites.length()): index).filter(~keep: fun (index): manifest.sites[index].kind == "residency").map(to_string)
+  def phased = (for List (index in 0..manifest.sites.length()): index).filter(~keep: fun (index): manifest.sites[index].phased).map(to_string)
   /* Encodes one runtime capture descriptor, preserving raw field names, enum symbols, packing offsets, and display metadata. */
   fun cpp_field(field :: EventField):
     // Names are raw literals too: quotes, backslashes and Unicode are not C++ escapes.
@@ -150,5 +151,5 @@ fun event_manifest_to_cpp(manifest :: EventManifest):
     "#pragma once\n#include \"rheg.h\"\n",
     "namespace rheg_generated {\ninline rheg::Manifest manifest() {\n  return {R\"",
     tag ++ "(" ++ json ++ ")" ++ tag ++ "\", {" ++ String.join(widths, ","),
-    "}, {" ++ String.join(edges, ",") ++ "}, {" ++ String.join(fields, ",") ++ "}, {" ++ String.join(residencies, ",") ++ "}, {" ++ String.join(instances, ",") ++ "}, {" ++ String.join(site_instances, ",") ++ "}};\n}\n}\n"
+    "}, {" ++ String.join(edges, ",") ++ "}, {" ++ String.join(fields, ",") ++ "}, {" ++ String.join(residencies, ",") ++ "}, {" ++ String.join(instances, ",") ++ "}, {" ++ String.join(site_instances, ",") ++ "}, {" ++ String.join(phased, ",") ++ "}};\n}\n}\n"
   ], "")

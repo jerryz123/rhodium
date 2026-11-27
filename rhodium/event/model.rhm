@@ -51,7 +51,8 @@ class EventSite(id :: String,
                 fields :: List.of(EventField) = [],
                 kind :: String = "transfer",
                 observation_of :: maybe(String) = #false,
-                residency_index :: maybe(Nat) = #false)
+                residency_index :: maybe(Nat) = #false,
+                phased :: Boolean = #false)
 
 /*
  * Empty controls mean an unconditional one-cycle delay. Optional flush cancels

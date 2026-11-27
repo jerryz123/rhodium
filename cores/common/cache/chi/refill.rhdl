@@ -30,6 +30,15 @@ bundle CacheLineRefillResult(Context :: DataType,
 fun cache_mshr_txn_id(slot :: Nat) :: Nat:
   if slot == 0 | 0 | slot + 2
 
+/* Names registered refill progress for residency tracing. */
+hardware_enum CacheRefillPhase:
+  IssueRequest
+  WaitRetryCredit
+  ReissueRequest
+  ReceiveData
+  SendCompAck
+  WaitCompletion
+
 /* Retains one retryable ReadClean/ReadUnique transaction and emits each accepted packet for storage.
    Completion waits for all unique packets and CompAck acceptance; the last arriving packet owns
    the ack. */
@@ -91,7 +100,16 @@ sync_circuit CacheLineRefill(Context :: DataType,
   /* Command admission and retryable request issue.
      Capture the selected Home once; later attempts retain that transaction identity. */
 
-  def acquiring = command |> trace_event("dcache/refill", ~residency: "data", ~fields: request):
+  def all_data_received = received_packets.all()
+  def phase :: CacheRefillPhase = priority_mux(~default: CacheRefillPhase.IssueRequest):
+    !control.active: CacheRefillPhase.IssueRequest
+    acknowledgement_sent: CacheRefillPhase.WaitCompletion
+    all_data_received: CacheRefillPhase.SendCompAck
+    control.attempt_outstanding: CacheRefillPhase.ReceiveData
+    !control.attempt.valid: CacheRefillPhase.WaitRetryCredit
+    !control.attempt.bits.allow_retry: CacheRefillPhase.ReissueRequest
+
+  def acquiring = command |> trace_event("dcache/refill", ~residency: "data", ~phase: phase, ~fields: request):
     address: line_address
     opcode(~format: "enum"): request.opcode
 
@@ -147,7 +165,6 @@ sync_circuit CacheLineRefill(Context :: DataType,
 
   def incoming_data = response_data.bits
   def coherent_response = incoming_data.resp.into(CHICoherentResponse())
-  def all_data_received = received_packets.all()
   def first_data_packet = !received_packets.any()
   def packet_index = chi_transfer_beat(incoming_data.data_id, p)[0..packet_index_width]
   def packet_was_received = received_packets[packet_index]

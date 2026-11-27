@@ -226,7 +226,8 @@ fun infer_event_manifest(logical :: DesignElaboration,
                                  annotation.payload?.type?.packed_width(),
                                  annotation.location.describe(),
                                  captures,
-                                 if annotation.residency_storage() | "residency" | "transfer")
+                                 if annotation.residency_storage() | "residency" | "transfer",
+                                 #false, #false, annotation.phased)
 
             def bank = annotation.residency_bank()
             def input = terminal_id(instance_path, flow_block.id, input_ports[0].id)

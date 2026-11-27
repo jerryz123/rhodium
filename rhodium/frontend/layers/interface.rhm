@@ -880,12 +880,13 @@ class InterfaceEventGroup(module_def :: Module,
                           fields :: List.of(InterfaceEventField) = [],
                           stalls :: Boolean = #false,
                           mutable parents :: maybe(List.of(Nat)) = #false,
-                          residency :: maybe(String) = #false):
+                          residency :: maybe(String) = #false,
+                          phased :: Boolean = #false):
   implements ModuleMetadataPayload
   /* Rebind event endpoints, handshake signals, payload, and sampled fields.
      Stable parent IDs and source labels retain their original event attribution. */
   override method remap_ir(remap :: Function.of_arity(1)):
-    InterfaceEventGroup(remap(module_def), site_index, label, remap(input), remap(output), remap(payload), location, remap(valid), remap(ready), remap(fields), stalls, parents, residency)
+    InterfaceEventGroup(remap(module_def), site_index, label, remap(input), remap(output), remap(payload), location, remap(valid), remap(ready), remap(fields), stalls, parents, residency, phased)
 
   /* Resolve after elaboration so the storage declaration may follow its input. */
   method residency_bank():
@@ -895,6 +896,8 @@ class InterfaceEventGroup(module_def :: Module,
   method residency_storage(index :: maybe(Nat) = #false):
     if residency
     | def bank = this.residency_bank()
+      when phased && bank
+      | error(~who: #'trace_event, "phase observation requires scalar retained storage")
       def storage = if bank | bank.entries[index || 0] | module_def.metadata_for(interface_retained_storage_namespace).find(fun (item): item.name == residency)
       unless storage | error(~who: #'trace_event, "residency requires named retained storage: " ++ residency)
       storage
@@ -2978,8 +2981,9 @@ fun describe_interface_event(handle :: Handle,
                              ~parents: parents :: maybe(List.of(InterfaceEndpoint)) = #false,
                              ~stalls: stalls :: Boolean = #false,
                              ~residency: residency :: maybe(String) = #false,
+                             ~phase: phase :: maybe(HardwareEntity) = #false,
                              ~payload: payload :: maybe(HardwareEntity) = #false,
-                             ~fields: fields :: List.of(InterfaceEventField) = [],
+                             ~fields: captures :: List.of(InterfaceEventField) = [],
                              ~valid: valid :: maybe(HardwareEntity) = #false,
                              ~ready: ready :: maybe(HardwareEntity) = #false,
                              ~location: location :: Location = Location()) :: Handle:
@@ -2988,6 +2992,11 @@ fun describe_interface_event(handle :: Handle,
 
   when residency && (residency == "" || stalls)
   | error(~who: #'describe_interface_event, "residency requires a nonempty storage name and cannot observe stalls")
+
+  when phase && !residency
+  | error(~who: #'describe_interface_event, "phase observation requires residency")
+
+  def fields = if phase | captures ++ [event_field("phase", phase, ~format: "enum", ~label: #true, ~location: location)] | captures
 
   unless handle.left is_a InterfaceEndpoint && handle.right is_a InterfaceEndpoint
   | error(~who: #'describe_interface_event,
@@ -3080,7 +3089,8 @@ fun describe_interface_event(handle :: Handle,
                                   if payload | [InterfaceEventField("raw", payload_value, "hex")] | fields,
                                   stalls,
                                   selected_parents,
-                                  residency)
+                                  residency,
+                                  if phase | #true | #false)
 
   module_def.add_metadata(interface_event_group_namespace, event)
   describe_interface_transform(

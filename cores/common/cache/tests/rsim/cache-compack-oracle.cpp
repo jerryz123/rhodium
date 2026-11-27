@@ -1,4 +1,4 @@
-// Reconstructs exact last-arriving-packet parents from public line-engine handshakes.
+// Reconstructs exact last-arriving-packet parents and refill phases from public handshakes.
 // SPDX-License-Identifier: Apache-2.0
 #include "../../../../../rheg/runtime/rheg.h"
 #include "test-sites.h"
@@ -13,6 +13,7 @@ std::map<unsigned, std::uint64_t> sequences;
 std::array<unsigned, 2> packets{};
 std::array<std::optional<rheg::Ref>, 2> owner;
 std::array<std::optional<rheg::Ref>, 2> residency;
+std::optional<unsigned> next_phase;
 unsigned completed_refills = 0;
 std::uint64_t cycle = 0;
 unsigned acks = 0, roms = 0, stalls = 0, resets = 0, nonmax_final = 0;
@@ -27,12 +28,14 @@ rheg::Ref node(unsigned site, unsigned width, unsigned value) {
 rheg::Ref begin_refill(unsigned site, unsigned address) {
   const auto& manifest = rheg_generated::manifest();
   const rheg::Ref ref{site, sequences[site]++};
+  if (site == test_sites::dcache_refill && ref.sequence == 0)
+    for (auto scope : manifest.site_instances.at(site)) expected.record_instance(scope, 0, cycle);
   auto& n = expected.nodes[ref];
   n.present = true; n.cycle = cycle; n.width = manifest.payload_widths.at(site);
   n.ancestry_unknown = true; // Scalar bench stimulus has no upstream Flow occurrence.
   for (unsigned word = 0; word < (n.width + 31) / 32; ++word) n.words[word] = 0;
   for (const auto& field : manifest.fields.at(site)) {
-    const std::uint64_t value = field.name == "address" ? address : 2;
+    const std::uint64_t value = field.name == "address" ? address : field.name == "phase" ? 0 : 2;
     for (unsigned bit = 0; bit < field.width; ++bit)
       n.words[(field.offset + bit) / 32] |= unsigned((value >> bit) & 1) << ((field.offset + bit) % 32);
   }
@@ -56,15 +59,24 @@ void sample_lane(unsigned lane, unsigned fire, unsigned packet, unsigned ack, un
   }
 }
 }
-extern "C" void compack_bind() { rheg::graph().bind_manifest(rheg_generated::manifest()); }
+extern "C" void compack_bind() {
+  const auto manifest = rheg_generated::manifest();
+  rheg::graph().bind_manifest(manifest);
+  expected.bind_manifest(manifest);
+}
 extern "C" void compack_sample(unsigned reset, unsigned command, unsigned instruction_rom, unsigned d_address,
     unsigned dfire, unsigned dpacket, unsigned ifire, unsigned ipacket,
     unsigned dack, unsigned ddbid, unsigned iack, unsigned idbid, unsigned stalled,
-    unsigned dfinish, unsigned ifinish) {
+    unsigned dfinish, unsigned ifinish, unsigned drequest) {
   if (reset) {
     resets += owner[0].has_value() || owner[1].has_value();
-    packets = {}; owner = {}; residency = {}; sequences.clear(); expected.clear(); cycle = 0;
+    packets = {}; owner = {}; residency = {}; next_phase.reset(); sequences.clear(); expected.reset(true); cycle = 0;
     return;
+  }
+  if (next_phase) {
+    if (!residency[0]) fail("phase without refill residency");
+    expected.record_phase(*residency[0], cycle, *next_phase);
+    next_phase.reset();
   }
   for (unsigned lane = 0; lane < 2; ++lane) if (lane == 0 ? dfinish : ifinish) {
     if (!residency[lane]) fail("completion without refill residency");
@@ -79,6 +91,9 @@ extern "C" void compack_sample(unsigned reset, unsigned command, unsigned instru
   }
   sample_lane(0, dfire, dpacket, dack, ddbid);
   sample_lane(1, ifire, ipacket, iack, idbid);
+  if (drequest) next_phase = 3; // ReceiveData
+  if (dfire && packets[0] == 15) next_phase = 4; // SendCompAck
+  if (dack) next_phase = 5; // WaitCompletion
   stalls += stalled; ++cycle;
 }
 extern "C" void compack_check() {

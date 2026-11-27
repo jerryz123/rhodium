@@ -1,13 +1,14 @@
+// Drives multi-width dirty victim copyback, retry ordering, and stalled transfers.
 // SPDX-License-Identifier: Apache-2.0
 #include "test.hpp"
 extern "C" void copyback_bind();
 extern "C" void copyback_sample(unsigned, unsigned, unsigned, unsigned,
-                                unsigned);
+                                unsigned, unsigned, unsigned);
 extern "C" void copyback_check();
 extern "C" void copyback_finish();
 void tick() {
   eval();
-  unsigned starts = 0, finishes = 0, requests = 0, packets = 0;
+  unsigned starts = 0, finishes = 0, requests = 0, packets = 0, responses = 0;
   for (unsigned i = 0; i < 3; ++i) {
     starts |=
         unsigned(enabled[i] && command_valid && observed[i].pcommand_uready)
@@ -15,8 +16,9 @@ void tick() {
     finishes |= unsigned(completion_ready && observed[i].pdone) << i;
     requests |= unsigned(request_ready && observed[i].prequest_uvalid) << i;
     packets |= unsigned(data_ready && observed[i].pdata_uvalid) << i;
+    responses |= unsigned(enabled[i] && response_valid && observed[i].presponse_uready) << i;
   }
-  copyback_sample(reset, starts, finishes, requests, packets);
+  copyback_sample(reset, starts, finishes, requests, packets, responses, response_opcode);
   tick_model();
   copyback_check();
 }
