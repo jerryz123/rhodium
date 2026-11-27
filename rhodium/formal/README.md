@@ -348,21 +348,14 @@ Passing the bare gate view asks for an unconditional theorem and fails on two
 active grants. A consumer must discharge the retained predicate on its wiring
 before using the gate's guarantee.
 
-If the parent keeps different history, pass the combinational evidence to
-`prove-transaction` and declare the relation to the child's public history:
-
-```racket
-(prove-transaction top previous_zero_view (hash "gate" gate-proof)
-                   #:combinational (hash "arb" arbiter-proof))
-```
-
 The [one-bit view](../../examples/formal/gated-capture.rspl) promises that,
 on capture, readback is zero exactly when the previous winner was zero
 (initially true after reset). It does not promise which nonzero word is read.
 The checker proves the same pin premises first, then proves the relation
 at reset and across active edges. It does not require identical monitors.
 
-The same parent can use **two transaction contracts** and no executable child.
+The [handwritten oracle](tests/selector-refinement.rkt) supplies combinational
+arbiter evidence separately. The public spec uses **two transaction contracts** and no executable child.
 Pass the one-bit spec to the generic runner:
 
 ```racket

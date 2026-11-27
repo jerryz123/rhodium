@@ -48,6 +48,7 @@ fun ordered_retirement():
     batch retire_tag: Bool = payload(retired) when retire
     batch retire_data: Bits(2) = payload(retired_value) when retire
 
+    // Think of this list as a scoreboard: append each newly issued tag and remove only the oldest on retirement.
     state order: Seq(Bool, 2) initially [] as cleared
     state gen_a: Bool initially #false
     state done_a: Bool initially #false
@@ -68,6 +69,7 @@ fun ordered_retirement():
     guarantee "epoch" = !reset || !(grant || retire || complete_a || complete_b)
     guarantee "history" = reset || !two || !same(head, second)
     guarantee "fresh-grant" = !grant || (!contains(grant_tag) && (!two || retire))
+    // If B finishes before an older A, B must wait. These checks constrain a retirement if it happens, not when it happens.
     guarantee "oldest-tag" = !retire || (live && same(retire_tag, head))
     guarantee "completed-before-retirement" = !retire || select(head, done_b, done_a)
     guarantee "retired-payload" = !retire || bits_equal(retire_data, select(head, saved_b, saved_a))
@@ -78,6 +80,7 @@ fun ordered_retirement():
     /* Only the first matching response for an already live allocation writes its result. */
     fun captures(tag :: Boolean, done :: SpecExpr, pulse :: SpecExpr, echo :: SpecExpr, gen :: SpecExpr):
       contains(const(Bool, tag)) && !done && pulse && same(echo, gen)
+    // The generation bit distinguishes successive uses of a tag. Once a result is saved, duplicate completions cannot replace it.
     let capture_a = captures(#false, done_a, complete_a, echo_a, gen_a)
     let capture_b = captures(#true, done_b, complete_b, echo_b, gen_b)
     let allocate_a = grant && !grant_tag

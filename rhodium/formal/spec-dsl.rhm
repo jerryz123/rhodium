@@ -8,7 +8,7 @@ import:
   "spec.rhm" open
 
 export:
-  SpecExpr Bool select append seq_concat bits_equal bits_slice ! && || operand
+  SpecExpr Bool select append seq_concat bool_equal bits_equal bits_slice ! && || operand
   rename:
     SpecBits as Bits
     SpecSeq as Seq
@@ -26,6 +26,11 @@ fun operand(v :: Boolean || SpecExpr): if v is_a Boolean | literal(Bool, v) | v
 /* Construct both branches as IR; on a sampled edge only the selected branch must be defined. */
 fun select(test :: Boolean || SpecExpr, yes :: Boolean || SpecExpr, no :: Boolean || SpecExpr):
   choose_if(operand(test), operand(yes), operand(no))
+
+/* Compare two logical predicates; neither operand may be a packed one-bit word. */
+fun bool_equal(left :: Boolean || SpecExpr, right :: Boolean || SpecExpr) :: SpecExpr:
+  def rhs = operand(right)
+  choose_if(operand(left), rhs, bool_not(rhs))
 
 /* Booleans can be sequence elements; packed constants still need an explicit width. */
 fun append(seq :: SpecExpr, value :: Boolean || SpecExpr): seq_append(seq, operand(value))

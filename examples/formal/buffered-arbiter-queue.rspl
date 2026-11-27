@@ -10,6 +10,7 @@ import lib("rspecl/fifo.rspl").fifo_monitor
 spec for rtl.BufferedArbiterQueue:
   let word = ingress[0].bits.type
   events transfers = ready_valid_events(reset, ingress, egress)
+  // The front can hold depth words and the tail can hold one more. This bound does not promise when ready rises.
   transactions fifo_monitor(depth + 1, word.width, transfers)
   refinement:
     child front: ArbiterQueue
@@ -22,6 +23,7 @@ spec for rtl.BufferedArbiterQueue:
                   "front.egress.ready": "tail_fifo.ingress.ready",
                   "egress.valid": "tail_fifo.egress.valid", "egress.bits": "tail_fifo.egress.bits",
                   "tail_fifo.egress.ready": "egress.ready"}
+    // A word in the tail crossed the internal handoff earlier, so it comes before every word still in front.
     history waiting from front.q: Seq(word, depth)
     history oldest from tail_fifo.q: Seq(word, 1)
     relate q = seq_concat(oldest, waiting)

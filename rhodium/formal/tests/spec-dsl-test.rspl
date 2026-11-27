@@ -333,15 +333,18 @@ spec for rtl.Qualified:
   let stalled = !fired
   output stalled_or_idle = stalled
   event transfer = offered when fired
+  event agree = bool_equal(offered, ready)
 def qualified = Qualified(elaborate(rtl.Qualified()).top)
 for (a in [#false, #true]):
   for (b in [#false, #true]):
     def edge = step_spec(qualified, Map{}, {"offered": a, "ready": b})
     check:
       edge.outputs ~is {"transfer": a && b, "offered_only": a, "prior": #false, "stalled_or_idle": !(a && b)}
-      edge.events ~is (if a && b | {"transfer": #true} | Map{})
+      edge.events ~is ({"agree": a == b} ++ (if a && b | {"transfer": #true} | Map{}))
 
 check:
+  bool_equal(const(Bits(1), 1), #false) ~throws "expected a boolean expression"
+  bool_equal(#true, const(Bits(1), 0)) ~throws "expected a boolean expression"
   (#false && error("not reached")) ~is #false
   (#true || error("not reached")) ~is #true
 

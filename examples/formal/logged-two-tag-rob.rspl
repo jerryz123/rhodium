@@ -36,6 +36,7 @@ fun last_record():
     guarantee "reset-quiets-retirement" = !reset || !retire
     guarantee "record-valid" = reset || same(valid, occupied)
     guarantee "record-value" = reset || !valid || (same(last_tag, tag) && bits_equal(last_payload, data))
+    // Reset invalidates the record. An offered retirement with ready low leaves the last captured tag and data alone.
     next occupied = !reset && (occupied || retire)
     next tag = select(retire, retire_tag, tag)
     next data = select(retire, retire_data, data)
@@ -45,6 +46,7 @@ spec for rtl.LoggedTwoTagROB:
 
   refinement:
     child rob: specs.TwoTagROB
+    // Check that the public retirement events match the child's. The separate record check still has to prove what was saved.
     forward_batch rob
     local (occupied): Bool
     local (tag): Bits(1)
@@ -80,5 +82,6 @@ spec for rtl.LoggedTwoTagROB:
     cover capture_b = taking && who
     input ready from retire.ready: Bool
     output offered from retire.valid: Bool
+    // Look for stalls both before the first recorded retirement and after it, when there is a record to preserve.
     cover first_stall = offered && !ready && !occupied
     cover holding_stall = offered && !ready && occupied

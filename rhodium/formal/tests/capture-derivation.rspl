@@ -14,6 +14,17 @@ import lib("rspecl/rtl-boundary.rhm").Presence
 // Share the intended sampler and monitor, without importing the correct parent's private relation.
 def parent_events = capture_monitor(public.capture_events)
 
+// The handwritten oracle supplies a separate combinational arbiter proof rather than a grant seal.
+def previous_zero_view:
+  spec for rtl.ArbitratedCapture:
+    transactions public.previous_zero_monitor
+    refinement:
+      child gate: public.GatedCapture
+      history word from gate.previous: Bits(2)
+      relate previous_was_zero = bits_equal(word, const(Bits(2), 0))
+  ArbitratedCapture(~transaction_view: #true)
+export previous_zero_view
+
 // Same forwarding claim and child contract, but no restriction on the actual gate inputs.
 spec for rtl.GatedCapture:
   transactions public.GatedCapture(~transaction_view: #true)
@@ -107,6 +118,18 @@ spec for flow.Arbiter:
     batch ga = present(ga)
     batch gb = present(gb)
     guarantee "exclusive" = !(ga && gb)
+
+// Bind only the weak arbiter above; exclusivity cannot prove which lane's word was captured.
+def weak_grants_zero_view:
+  spec for rtl.ArbitratedCapture:
+    transactions public.previous_zero_monitor
+    refinement:
+      child arb: Arbiter
+      child gate: public.GatedCapture
+      history word from gate.previous: Bits(2)
+      relate previous_was_zero = bits_equal(word, const(Bits(2), 0))
+  ArbitratedCapture(~transaction_view: #true)
+export weak_grants_zero_view
 
 // Isolate transfer decoding from grant correctness: both variants observe the same physical outputs.
 fun grant_with_transfer(cross_payload :: Boolean):

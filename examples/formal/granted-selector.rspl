@@ -6,6 +6,7 @@ import "granted-selector.rhdl" as rtl
 import "capture-history.rspl" open
 
 spec for rtl.LaneSelector:
+  // This selector promises a result only for legal enables. A caller must establish that the two cannot overlap.
   assume exclusive = !(enable_a && enable_b)
   observe selected = select(enable_a, word_a, select(enable_b, word_b, const(Bits(2), 0)))
 
@@ -30,10 +31,12 @@ fun selector_events(read :: Function.of_arity(2), output :: Function.of_arity(2)
 spec for rtl.RegisteredLaneSelector:
   state last_word: Bits(2) initially 0 as cleared
   assume exclusive = reset || !(enable_a && enable_b)
+  // Unlike the combinational selector above, this output shows the previous capture, not the word now being selected.
   observe selected = last_word when !reset
   next last_word = select(reset, cleared, select(enable_a, word_a, select(enable_b, word_b, last_word)))
   transactions capture_monitor(selector_events)
   refinement:
+    // Connect the transaction history to the cycle model; below, connect that model to the actual captured register.
     relate previous = last_word
   rtl_refinement:
     register captured: Bits(2)

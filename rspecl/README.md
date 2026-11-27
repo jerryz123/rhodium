@@ -67,7 +67,8 @@ not invoke those functions on each hardware edge.
 | `monitor:`, `transactions` | Describe legal joint event batches and their history, inline or with a monitor returned by a helper. `batch` binds event presence or payload; a named `guarantee` must be proved, not assumed. |
 
 Values include `Bool`, fixed-width `Bits(w)`, and bounded `Seq(element, capacity)`.
-Use `select` on sampled conditions, `bits_equal` on packed values, and
+Use `select` on sampled conditions, `bool_equal` on logical predicates (not
+`Bits(1)`), `bits_equal` on packed values, and
 `front`, `tail`, `append`, or `seq_concat` on sequences. Guard partial
 operations such as reading an empty sequence. See the [capture monitor](../examples/formal/capture-history.rspl)
 for a complete `sample` / `publish` / `batch` / `guarantee` example, and the

@@ -16,11 +16,14 @@ def pair_wires = {"a.ingress.valid": "offer", "a.ingress.bits": "data", "ready":
 
 spec for rtl.QueuePair:
   events transfers = pair_events(reset)
+  // Count accepted words until they leave. The capacity bound does not require ready to be high whenever space remains.
   transactions fifo_monitor(2 * depth, data.type.width, transfers)
   refinement:
+    // Check the actual RTL handoff: a sends valid and data to b, and b sends ready back to a.
     direct_wires pair_wires
     child a: ShiftQueue
     child b: ShiftQueue
     history upstream from a.q: Seq(data.type, depth)
     history downstream from b.q: Seq(data.type, depth)
+    // Read the two queues as one oldest-first list: b drains before any word still waiting in a.
     relate q = seq_concat(downstream, upstream)

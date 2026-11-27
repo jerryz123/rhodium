@@ -12,6 +12,7 @@ fun live_slots(flags :: SpecExpr, words :: SpecExpr, depth :: PosInt, width :: P
   def mutable previous = const(Bool, #true)
   def slots = for List (i in 0..depth):
     def live = bits_equal(bits_slice(flags, i, 1), const(Bits(1), 1))
+    // A live slot after a vacant one would be a hole. Remember that failure even if later slots look valid.
     compact := compact && (!live || previous)
     previous := live
     select(live, append(vacant, bits_slice(words, i * width, width)), vacant)
@@ -26,6 +27,7 @@ spec for rtl.ShiftQueue:
   ignore mask
   state q: Seq(ingress.bits.type, depth) initially [] as cleared
 
+  // Use the queue before the edge: when it starts full, a departure does not make room for a simultaneous arrival.
   let ready = !full(q)
   let valid = !empty(q)
   let push = ready && ingress.valid
@@ -36,6 +38,7 @@ spec for rtl.ShiftQueue:
   events transfers = ready_valid_events(reset, ingress, egress)
   transactions fifo_monitor(depth, ingress.bits.type.width, transfers)
 
+  // If both transfers happen, remove the old head and append the arriving word after the survivors.
   let rest = select(pop, tail(q), q)
   next q = select(reset, cleared, select(push, append(rest, ingress.bits), rest))
 
@@ -46,10 +49,12 @@ spec for rtl.ShiftQueue:
     register occupied: Bits(depth)
     register payload: Bits(depth * ingress.bits.type.width)
     def values(contents, compact) = live_slots(occupied, payload, depth, ingress.bits.type.width)
+    // The proof must show the RTL never leaves a hole; then reading the live slots in order gives the model's queue.
     invariant occupied_prefix = compact
     relate q = contents
     pin rst from reset
     pin offered from egress.valid
     care ingress.ready = !rst
     care egress.valid = !rst
+    // There is no promised payload during reset or when valid is low.
     care egress.bits = !rst && offered

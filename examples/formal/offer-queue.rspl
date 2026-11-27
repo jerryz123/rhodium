@@ -26,6 +26,7 @@ spec for rtl.OfferQueue:
     batch ready = present(ready)
     batch retire = present(retire)
     batch outgoing: Bits(2) = payload(retire) when retire
+    // An update is still replaceable in pending. Only after the FIFO accepts it is that word owed to the output.
     state pending: Seq(Bits(2), 1) initially [] as vacant
     state committed: Seq(Bits(2), 1) initially []
 
@@ -33,6 +34,7 @@ spec for rtl.OfferQueue:
     guarantee "reset-quiets-events" = !rst || !(install || ready || retire)
     guarantee "retire-committed-head" = !retire || (!empty(committed) && bits_equal(outgoing, front(committed)))
     guarantee "space-for-handoff" = !handoff || !full(committed) || retire
+    // On a handoff plus a new update, the old pending word enters the FIFO and the new word stays pending.
     let rest = select(retire, tail(committed), committed)
     next committed = select(rst, vacant, select(handoff, append(rest, front(pending)), rest))
     next pending = select(rst, vacant, select(install, append(vacant, incoming), select(handoff, vacant, pending)))
@@ -51,4 +53,5 @@ spec for rtl.OfferQueue:
     batch installing from install: Bool
     batch replacement from incoming: Bits(2)
     batch admitting from ready: Bool
+    // Ask for a reachable edge with different old and new words, so a mix-up between them would be observable.
     cover distinct_replacement = installing && admitting && !empty(latest) && !bits_equal(replacement, front(latest))

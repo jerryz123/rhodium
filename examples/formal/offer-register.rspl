@@ -21,6 +21,7 @@ spec for rtl.OfferRegister:
   observe egress.valid = live when !reset
   observe egress.bits = stored when !reset && live
 
+  // Ready controls delivery, not replacement: a new update can change the offered word even while the output stalls.
   let keep = live && !egress.ready
   next live = !reset && (update.valid || keep)
   next stored = select(reset, unused, select(update.valid, update.bits, select(keep, stored, unused)))
@@ -35,6 +36,7 @@ spec for rtl.OfferRegister:
     batch offer_word: Bits(2) = payload(offered) when offered
     batch transfer = present(delivered)
     batch old_word: Bits(2) = payload(delivered) when transfer
+    // An empty list means no offer; a list containing zero means there really is a word to deliver.
     state slot: Seq(Bits(2), 1) initially [] as vacant
 
     guarantee "reset-quiets-events" = !rst || !(install || offered || transfer)
@@ -52,6 +54,7 @@ spec for rtl.OfferRegister:
     register occupied: Bool
     register payload: Bits(2)
     relate live = occupied
+    // When the slot is empty the register bits do not matter, so the model represents them by zero.
     relate stored = select(occupied, payload, const(Bits(2), 0))
     pin rst from reset
     pin valid from egress.valid

@@ -12,6 +12,7 @@ spec for rtl.TwoTagROB:
   // Private induction hints, not statements that a consumer may assume about this RTL.
   refinement:
     child order: ArbiterQueue
+    // Read the order queue's proved list of words; its internal registers are not part of this proof.
     history words from order.q: Seq(Bits(2), 2)
     local (busy_a, busy_b, gen_a, gen_b, done_a, done_b): Bool
     local (saved_a, saved_b): Bits(2)
@@ -39,6 +40,7 @@ spec for rtl.TwoTagROB:
     relate gen_b = gen_b when busy_b
     relate done_a = done_a when busy_a
     relate done_b = done_b when busy_b
+    // Only a finished tag has a meaningful result, so stale bits in other RTL banks need not match the model.
     relate saved_a = saved_a when done_a
     relate saved_b = saved_b when done_b
 
@@ -52,6 +54,7 @@ spec for rtl.TwoTagROB:
     cover retire_a1 = retiring && !retired_tag && gen_a
     cover retire_b0 = retiring && retired_tag && !gen_b
     cover retire_b1 = retiring && retired_tag && gen_b
+    // Look for A at the head with only B finished: even a ready consumer cannot retire B first.
     cover younger_only = two && !head && !done_a && done_b && ready && !retiring
 
   state history: Seq(Bool, 2) initially [] as cleared
@@ -72,6 +75,7 @@ spec for rtl.TwoTagROB:
   let has_b = (live && head_b) || (two && last_b)
   let a = issue_a && !has_a && !two
   let b = issue_b && !has_b && !two && !a
+  // Completion can arrive out of order, but only the oldest tag's completion makes the output valid.
   let available = live && select(head_b, finished_b, finished_a)
   let pop = available && retire.ready
 

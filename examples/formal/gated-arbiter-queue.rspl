@@ -13,6 +13,7 @@ spec for rtl.GatedArbiterQueue:
 
   let first = ingress[0]
   let second = ingress[1]
+  // The gate controls admission, not retirement: a queued word can leave even when new inputs are blocked.
   let room = admitting && !full(pending)
   let grant0 = room && first.valid
   let grant1 = room && !first.valid && second.valid
@@ -29,8 +30,10 @@ spec for rtl.GatedArbiterQueue:
   transactions fifo_monitor(depth, first.bits.type.width, transfers)
 
   let retained = select(pop, tail(pending), pending)
+  // This edge samples enable for the next cycle; it does not open the gate for the current offers.
   next admitting = !reset && enable
   next pending = select(reset, cleared, select(push, append(retained, winner), retained))
 
   refinement:
+    // To reuse the child's ordering promise, the proof must show that parent and child see the same transfers.
     forward queue: ArbiterQueue

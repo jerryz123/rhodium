@@ -34,14 +34,15 @@ spec for rtl.Arbiter:
   monitor:
     sample grant_events
     publish []
+    // A request and a grant are different observations: both requests may be high, but both grants must never be high.
     batch a = present(a)
     batch b = present(b)
     batch ready = present(ready)
     batch ga = present(ga)
     batch gb = present(gb)
     guarantee "exclusive" = !(ga && gb)
-    guarantee "first-grant" = select(ready && a, ga, !ga)
-    guarantee "second-grant" = select(ready && !a && b, gb, !gb)
+    guarantee "first-grant" = bool_equal(ga, ready && a)
+    guarantee "second-grant" = bool_equal(gb, ready && !a && b)
 
   rtl_refinement:
     pin g0 from ingress[0].ready
@@ -77,6 +78,7 @@ fun transfer_monitor(inputs :: Map):
     batch a_word: word = payload(lane0) when take0
     batch b_word: word = payload(lane1) when take1
     batch sent_word: word = payload(sent) when send
+    // A handshake on either input must coincide with one on the output, carrying that same lane's word.
     guarantee "conserve-transfer" = select(take0 || take1, send, !send)
     guarantee "forward-lane-zero" = !take0 || bits_equal(a_word, sent_word)
     guarantee "forward-lane-one" = !take1 || bits_equal(b_word, sent_word)

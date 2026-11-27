@@ -31,6 +31,7 @@ fun stable_offer(sampler :: Function.of_arity(2)):
     batch ready = present(ready)
     batch word: Bits(2) = payload(offer) when offered
     state pending: Bool initially #false
+    // After a stall, compare the next sample with this remembered word. Reset cancels the comparison.
     state last: Bits(2) initially 0
     guarantee "stable-valid" = rst || !pending || offered
     guarantee "stable-payload" = rst || !pending || bits_equal(last, word)
@@ -42,6 +43,7 @@ export stable_offer egress_sample
 spec for queues.ShiftQueue:
   transactions stable_offer(egress_sample)
   refinement:
+    // Transfers alone skip stalled cycles; use consecutive samples of the queue's cycle spec to prove stability.
     adjacent_samples from cycle.ShiftQueue
 
 def required_offer = stable_offer(input_sample("word"))
@@ -82,6 +84,7 @@ spec for rtl.StallConsumer:
     local (tracking): Bool
     local (saved): Bits(2)
     required (pending): Bool
+    // This word belongs to the input assumption. The receipt itself remembers only whether a stall is pending.
     required (last): Bits(2)
     invariant same_stall = select(tracking, pending, !pending)
     invariant first_word = !tracking || bits_equal(saved, last)
@@ -98,6 +101,7 @@ spec for rtl.BufferedStallConsumer:
   refinement:
     child fifo: ShiftQueue
     child sink: StallConsumerWrapper
+    // The wrapper must prove the queue supplies stable valid and data at the sink's pins; its caller need not assume it.
     supply sink from fifo
     history held from sink.pending: Bool
     relate pending = held

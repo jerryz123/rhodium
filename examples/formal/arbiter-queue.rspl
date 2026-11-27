@@ -15,6 +15,7 @@ spec for rtl.ArbiterQueue:
   let second = ingress[1]
   let room = !full(pending)
   let grant0 = room && first.valid
+  // If both lanes offer a word and there is room, lane 0 gets in; lane 1 must try again.
   let grant1 = room && !first.valid && second.valid
   let push = grant0 || grant1
   let winner = select(grant0, first.bits, second.bits)
@@ -25,6 +26,7 @@ spec for rtl.ArbiterQueue:
   observe ingress[1].ready = grant1 when !reset
   observe egress.valid = valid when !reset
   observe egress.bits = front(pending) when !reset && valid
+  // The cycle model predicts the pins above. The FIFO monitor tracks only words that actually cross them.
   events transfers = ready_valid_events(reset, ingress, egress)
   transactions fifo_monitor(depth, first.bits.type.width, transfers)
 
@@ -41,5 +43,6 @@ spec for rtl.ArbiterQueue:
                   "shift_queue_stage.ingress.valid": "arbiter_stage.egress.valid", "shift_queue_stage.ingress.bits": "arbiter_stage.egress.bits",
                   "arbiter_stage.egress.ready": "shift_queue_stage.ingress.ready", "shift_queue_stage.egress.ready": "egress.ready",
                   "egress.valid": "shift_queue_stage.egress.valid", "egress.bits": "shift_queue_stage.egress.bits"}
+    // The arbiter stores nothing: every accepted word still owed at the output must be in the child's queue.
     history buffered from shift_queue_stage.q: Seq(first.bits.type, depth)
     relate q = buffered

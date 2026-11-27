@@ -10,9 +10,9 @@
          (only-in "composition-binding.rhm" arbitrated_capture capture_gate raw_capture duplicate_capture arbiter_definition circular_grants)
          (only-in "../../../examples/formal/arbiter.rspl" Arbiter)
          (only-in "../../../examples/formal/granted-selector.rspl" RegisteredLaneSelector)
-         (only-in "../../../examples/formal/gated-capture.rspl" GatedCapture ArbitratedCapture previous_zero_view
-                  arbitrated_capture_zero transaction_zero_view zero_from_grants zero_gate
-                  arbitrated_capture_from_bit zero_from_bit_view)
+         (only-in "../../../examples/formal/gated-capture.rspl" GatedCapture ArbitratedCapture
+                  arbitrated_capture_zero zero_gate arbitrated_capture_from_bit)
+         (only-in "capture-derivation.rspl" previous_zero_view)
          (prefix-in faulty: "capture-derivation.rspl"))
 
 (define (view pins _) (values (hash "selected" (observation #t (hash-ref pins "selected"))) (hash)))
@@ -290,6 +290,9 @@
 (define (prove-zero top view drivers)
   (prove-transaction top view (hash "gate" gate-contract) #:combinational drivers))
 
+(define transaction_zero_view (arbitrated_capture_zero #:transaction_view #t))
+(define zero_from_bit_view (arbitrated_capture_from_bit #:transaction_view #t))
+
 (define (check-zero-contract result view)
   (check-true (transaction-for? result arbitrated_capture view))
   (check-equal? (transaction-input-premises result view) (hash))
@@ -370,7 +373,7 @@
   (check-exn #rx"expected certified evidence for this transaction view"
              (lambda () (prove-from-grants arbitrated_capture transaction_zero_view weak)))
   (check-exn #rx"step/previous-was-zero not proved"
-             (lambda () (prove-from-grants arbitrated_capture (zero_from_grants faulty:Arbiter) weak))))
+             (lambda () (prove-from-grants arbitrated_capture faulty:weak_grants_zero_view weak))))
 
 (test-case "clockless derivation proves each grant rule before issuing a producer contract"
   (check-exn #rx"cycle-view-combinational/b-wins-contest not proved"
