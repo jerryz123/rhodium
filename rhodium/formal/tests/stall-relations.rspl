@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import lib("examples/formal/stalled-offer.rhdl") as rtl
 import lib("examples/formal/stalled-offer.rspl") as public
+import lib("examples/formal/shift-queue.rspl") as ordering
 
 // Keep the actual receipt sampler, verdict and updates. Replace only the proof hints.
 def receipt = public.StallConsumer(~transaction_view: #true) with (hints = #false)
@@ -39,6 +40,16 @@ fun parent_reads_private():
       relate pending = held
   BufferedStallConsumer(~transaction_view: #true)
 export parent_reads_private
+
+// Same parent, receipt, and RTL occurrence. The only substitution is the weaker queue contract.
+spec for rtl.BufferedStallConsumer:
+  transactions (public.BufferedStallConsumer(~transaction_view: #true) with (hints = #false))
+  refinement:
+    child fifo: ordering.ShiftQueue
+    child sink: public.StallConsumerWrapper
+    supply sink from fifo
+    history held from sink.pending: Bool
+    relate pending = held
 
 // Equal pin projections alone are insufficient: both requirements must start the same history.
 def original = public.wrapper_offer.monitor

@@ -417,27 +417,32 @@ A [stalled-offer monitor](../../examples/formal/stalled-offer.rspl) samples
 **valid and payload before transfer**. After any non-reset edge with valid high
 and ready low, the next sample must still be valid with the same word, including
 on a handshake. Reset cancels the obligation; nothing requires ready to rise.
-Derive this guarantee from ShiftQueue(1)'s verified cycle spec with the
-`'adjacent-samples` projection strategy. FIFO transaction ordering alone
+The supplier spec declares `adjacent_samples from cycle.ShiftQueue`: the
+runner proves that RTL-to-cycle refinement, then checks adjacent samples.
+FIFO transaction ordering alone
 cannot supply it: two traces can retire the same words but differ while stalled.
 
-The recorder's proof uses `#:requires required_offer` on its input pins.
+The recorder declares `requires required_offer` on its input pins.
 Its public receipt remembers only `pending`. Inside the recorder's
 `refinement:`, `required (last): Bits(2)` reads the input monitor's own
 history. The checker proves that the RTL's saved word equals `last` while
 tracking a stall; that word is not part of the receipt history available to a
 parent. A thin wrapper can forward the same receipt, but must retain the
-stable-offer requirement on its **own** input pins:
+stable-offer requirement on its **own** input pins. Its spec declares
+`requires wrapper_offer` and `forward recorder: StallConsumer`. The outer
+spec connects that requirement to a supplier:
 
-```racket
-(define wrapper-proof
-  (prove-forwarded-transaction wrapper-top wrapper-receipt "recorder" recorder-proof recorder-receipt
-                               #:requires wrapper_offer))
-(prove-transaction buffered-top buffered-receipt (hash "fifo" queue-proof "sink" wrapper-proof)
-                   #:suppliers (hash "sink" "fifo"))
+```rhombus
+refinement:
+  child fifo: ShiftQueue
+  child sink: StallConsumerWrapper
+  supply sink from fifo
+  history held from sink.pending: Bool
+  relate pending = held
 ```
 
-The forwarding proof checks that the external `payload` drives the recorder's
+The [standalone proof](../../examples/formal/prove-stalled-offer.rhm) takes only
+the elaborated top and its spec. The forwarding proof checks that the external `payload` drives the recorder's
 `word` on every valid sample, including stalls. It checks the other input
 fields and the outgoing receipt as well. Only the outer proof, which connects
 ShiftQueue's sealed stability guarantee, is unconditional. It proves that a

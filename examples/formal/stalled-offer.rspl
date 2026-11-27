@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import lib("flow/shift-queue.rhdl") as queues
+import "shift-queue.rspl" as cycle
 import "stalled-offer.rhdl" as rtl
 import lib("rhodium/formal/spec.rhm").Observed
 
@@ -38,6 +39,8 @@ fun stable_offer(sampler :: Function.of_arity(2)):
 
 spec for queues.ShiftQueue:
   transactions stable_offer(queue_sample)
+  refinement:
+    adjacent_samples from cycle.ShiftQueue
 
 def required_offer = stable_offer(input_sample("word"))
 def wrapper_offer = stable_offer(input_sample("payload"))
@@ -71,6 +74,7 @@ fun receipt(sampler :: Function.of_arity(2)):
     next pending = offered && !ready
 
 spec for rtl.StallConsumer:
+  requires required_offer
   transactions receipt(sink_receipt("word"))
   refinement:
     local (tracking): Bool
@@ -82,12 +86,16 @@ spec for rtl.StallConsumer:
     relate pending = tracking
 
 spec for rtl.StallConsumerWrapper:
+  requires wrapper_offer
   transactions receipt(sink_receipt("payload"))
+  refinement:
+    forward recorder: StallConsumer
 
 spec for rtl.BufferedStallConsumer:
   transactions receipt(wrapper_receipt)
   refinement:
     child fifo: ShiftQueue
     child sink: StallConsumerWrapper
+    supply sink from fifo
     history held from sink.pending: Bool
     relate pending = held

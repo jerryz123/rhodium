@@ -365,7 +365,10 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
   def mutable bound_events = #false
   def mutable transaction = #false
   def mutable refinement = #false
-  def mutable forward_plan = #false
+  def mutable forward_args = #false
+  def mutable adjacent_source = #false
+  def mutable requirement = #false
+  def suppliers = MutableMap{}
   def mutable projection = #false
   def mutable rtl_hint = #false
   def child_specs = MutableMap{}
@@ -398,6 +401,10 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
     | 'monitor: $entry; ...':
         when transaction | syntax_meta.error("duplicate transaction view", clause)
         transaction := 'monitor_view: $entry; ...'
+    | 'requires $v ...':
+        when requirement | syntax_meta.error("duplicate temporal requirement", clause)
+        requirement := Syntax.make_temp_id("input_requirement")
+        model_clause('def $requirement = boundary.check_transaction_ports(($v ...), bound.ports)')
     | 'rtl_refinement: $entry; ...':
         when rtl_hint | syntax_meta.error("duplicate RTL refinement", clause)
         rtl_hint := Syntax.make_temp_id("rtl_relation")
@@ -411,13 +418,26 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
           | 'forward $(n :: Identifier): $s ...':
               unless refinement.length() == 1
               | syntax_meta.error("exact forwarding must be the only refinement clause", item)
-              forward_plan := 'PairList["forward", view, $(field_name(n)), ($s ...)]'
+              forward_args := [field_name(n), '($s ...)']
+          | 'adjacent_samples from $s ...':
+              unless refinement.length() == 1
+              | syntax_meta.error("adjacent_samples must be the only refinement clause", item)
+              adjacent_source := '($s ...)'
+          | 'supply $(sink :: Identifier) from $(source :: Identifier)':
+              def sink_name = field_name(sink)
+              when suppliers.has_key(sink_name) | syntax_meta.error("duplicate supplier for " ++ sink_name, item)
+              suppliers[sink_name] := field_name(source)
+          | 'supply $rest ...': syntax_meta.error("expected supply <consumer> from <supplier>", item)
           | 'child $(n :: Identifier): $s ...':
               def site = field_name(n)
               child_specs[site] := 'PairList[boundary.child_definition(top, $site), ($s ...)]'
           | ~else: #void
+        for ((sink, source) in suppliers):
+          unless child_specs.has_key(sink) && child_specs.has_key(source) && sink != source
+          | syntax_meta.error("supply requires two distinct declared children", clause)
+        refinement := refinement.filter(~keep: fun (item): !has_head(item, {"supply"}))
         def cut_forms = {"child", "fifo", "history", "local", "input", "output", "batch", "check", "cover", "direct_wires"}
-        when has_cycle && !forward_plan && !refinement.find(fun (c): has_head(c, cut_forms))
+        when has_cycle && !forward_args && !adjacent_source && !refinement.find(fun (c): has_head(c, cut_forms))
         | block:
             projection := Syntax.make_temp_id("cycle_projection")
             // Capture the lexical environment here. Later bindings cannot change the relation.
@@ -432,8 +452,15 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
   let [decl, ...] = declarations()
   def specialized = transaction && bound_events
   def fifo_behavior = transaction && event_source && !specialized
-  when forward_plan && (!transaction || fifo_behavior || rtl_hint)
+  when forward_args && (!transaction || fifo_behavior || rtl_hint)
   | syntax_meta.error("exact forwarding requires a transaction monitor and no RTL leaf refinement", name)
+  when adjacent_source && (!transaction || fifo_behavior || has_cycle || rtl_hint || requirement)
+  | syntax_meta.error("adjacent_samples requires an unconditional monitor and a separate RTL cycle proof", name)
+  when requirement && (!transaction || fifo_behavior || !refinement || rtl_hint || projection
+                        || child_specs.length() > 0)
+  | syntax_meta.error("requires needs a local monitor refinement or exact forwarding", name)
+  when suppliers.length() > 0 && (!transaction || fifo_behavior || rtl_hint)
+  | syntax_meta.error("supply requires a parent transaction refinement", name)
   when rtl_hint && !(transaction && !fifo_behavior && has_cycle && (projection || !sync.unwrap()))
   | syntax_meta.error("expected a cycle spec and transaction view; clocked RTL also needs a transaction projection", name)
   when bound_events && !transaction
@@ -441,7 +468,7 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
   when projection && !transaction && !event_source | syntax_meta.error("cycle refinement requires a transaction view", name)
   when specialized
   | transaction := 'check_event_domains($transaction, $(bound_events) . sampler, bound.ports)'
-  when refinement && !forward_plan && !projection && !fifo_behavior
+  when refinement && !forward_args && !adjacent_source && !projection && !fifo_behavior
   | block:
       unless transaction | syntax_meta.error("refinement requires a transaction view", name)
       let [entry, ...] = refinement
@@ -460,12 +487,19 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
     if projection
     | '(top = #false, ~transaction_view: tx_only :: Boolean = #false, ~cycle_derivation: derive :: Boolean = #false, ~proof_plan: plan :: Boolean = #false)'
     | '(top = #false, ~transaction_view: tx_only :: Boolean = #false, ~proof_plan: plan :: Boolean = #false)'
-  def parent_plan = forward_plan || 'PairList["parent", view, $(map_expr(child_specs))]'
+  def need = requirement || '#false'
+  def parent_plan:
+    cond
+    | forward_args:
+        let [site, spec] = forward_args
+        'PairList["forward", view, $site, $spec, $need]'
+    | adjacent_source: 'PairList["adjacent", view, $adjacent_source]'
+    | ~else: 'PairList["parent", view, $(map_expr(child_specs)), $need, $(map_expr(suppliers))]'
   def leaf_plan:
     if rtl_hint
     | 'PairList["leaf", top.name, checked, view, $(if projection | '$projection(checked)' | 'Map{}'), $rtl_hint(checked)]'
     | 'error("cycle spec has no RTL refinement")'
-  def cycle_plan = if forward_plan || child_specs.length() > 0 | parent_plan | leaf_plan
+  def cycle_plan = if forward_args || requirement || child_specs.length() > 0 | parent_plan | leaf_plan
   /* Return the same public view for consumers. Only a proof request also builds the private relation. */
   fun result_expr(normal :: Syntax):
     if projection | 'if derive | values(view, $projection(checked)) | $normal' | normal

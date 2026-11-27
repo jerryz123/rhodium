@@ -22,8 +22,8 @@
     (for/hash ([(k sort) (hash-ref model "inputs")])
       (values k (typed sort (lookup k))))))
 
-#| Check physical observations, using a state relation only for clocked RTL, then derive the monitor. |#
-(define (prove-rtl-leaf top root cycle view projection hints)
+#| Certify the cycle observations against physical RTL independently of any chosen transaction monitor. |#
+(define (prove-rtl-cycle top root cycle view hints)
   (match-define (list relation physical) hints)
   (define model (spec_snapshot cycle))
   (define-values (sampler _monitor _ins _outs) (transaction_parts view))
@@ -46,8 +46,7 @@
     (values outs (for/hash ([k (hash-keys (hash-ref model "events"))])
                    (values k (hash-ref (edge-events transfers) k)))
             (&& (edge-defined actual) (edge-defined transfers))))
-  (define certificate (prove-leaf top cycle interface_prefixes observe #:relation (and relation related)))
-  (derive-transaction certificate top view projection))
+  (prove-leaf top cycle interface_prefixes observe #:relation (and relation related)))
 
 #| Resolve declared specs on actual RTL definitions. Share successful proofs by identity
    only within this call; the induction still allocates independent histories per occurrence. |#
@@ -59,14 +58,19 @@
       (lambda ()
         (match (spec definition #:proof_plan #t)
           [(list "leaf" root cycle view projection hints)
-           (prove-rtl-leaf definition root cycle view projection hints)]
-          [(list "forward" view site child-spec)
+           (derive-transaction (prove-rtl-cycle definition root cycle view hints) definition view projection)]
+          [(list "adjacent" view cycle-spec)
+           (match (cycle-spec definition #:proof_plan #t)
+             [(list "leaf" root cycle base _ hints)
+              (derive-transaction (prove-rtl-cycle definition root cycle base hints) definition view 'adjacent-samples)]
+             [_ (error 'prove-design "adjacent samples require a proved RTL cycle leaf")])]
+          [(list "forward" view site child-spec requirement)
            (define child (child_definition definition site))
            (prove-forwarded-transaction definition view site (visit child child-spec)
-                                        (child-spec child #:transaction_view #t))]
-          [(list "parent" view children)
+                                        (child-spec child #:transaction_view #t) #:requires requirement)]
+          [(list "parent" view children requirement suppliers)
            (prove-transaction definition view
              (for/hash ([(site binding) children])
                (match-define (list child child-spec) binding)
-               (values site (visit child child-spec))))]))))
+               (values site (visit child child-spec))) #:requires requirement #:suppliers suppliers)]))))
   (visit top specification))

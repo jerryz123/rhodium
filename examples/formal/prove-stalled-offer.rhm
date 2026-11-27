@@ -1,0 +1,13 @@
+#lang rhombus
+/* Proves a wrapped recorder remembers the first stalled word supplied by a one-word ShiftQueue. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rspecl/runner.rkt").prove_design
+  "stalled-offer.rhdl" as rtl
+  "stalled-offer.rspl" as spec
+
+module main:
+  def seal = prove_design(elaborate(rtl.BufferedStallConsumer()).top, spec.BufferedStallConsumer)
+  println("Proved BufferedStallConsumer: a transfer after a stall remembers the first stalled word")

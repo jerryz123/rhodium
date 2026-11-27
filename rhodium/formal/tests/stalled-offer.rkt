@@ -1,12 +1,13 @@
 #lang rosette
 ;; SPDX-License-Identifier: Apache-2.0
 (require rackunit racket/match "../../../rspecl/proof.rkt" "../engine.rkt"
+         (only-in "../../../rspecl/runner.rkt" prove-design)
          (only-in "../snapshot.rhm" formal_snapshot)
          (only-in "../../../rspecl/rtl-boundary.rhm" transaction_parts)
          (only-in "../spec.rhm" spec_snapshot)
          (prefix-in alternative: "stall-relations.rspl")
          (only-in "composition-binding.rhm" fifo_at stall_parent stall_sink stall_wrapper changing_offer transfer_only_wrapper)
-         "stall-replay.rhm" "shift-queue-induction.rkt" "shift-queue-transactions.rkt"
+         "stall-replay.rhm" "shift-queue-transactions.rkt"
          "../../../examples/formal/stalled-offer.rspl")
 
 (define fifo (fifo_at 1))
@@ -15,13 +16,24 @@
 (define wrapped (StallConsumerWrapper stall_wrapper #:transaction_view #t))
 (define outside (BufferedStallConsumer stall_parent #:transaction_view #t))
 (define fifo-only (shift-queue-seal-at 1))
-(define producer (derive-transaction (verified-fifo-at 1) fifo offer 'adjacent-samples))
-(define consumer (prove-transaction stall_sink receipt (hash) #:requires required_offer))
+(define producer (prove-design fifo ShiftQueue))
+(define consumer (prove-design stall_sink StallConsumer))
 (define (forward top requirement)
   (prove-forwarded-transaction top wrapped "recorder" consumer receipt #:requires requirement))
-(define conditional-wrapper (forward stall_wrapper wrapper_offer))
+(define conditional-wrapper (prove-design stall_wrapper StallConsumerWrapper))
 (define sites (hash "fifo" producer "sink" conditional-wrapper))
 (define links (hash "sink" "fifo"))
+
+;; Use the good candidate declarations on a differently named fixture; no seal for the
+;; reference parent is supplied, so all pin obligations run again on the mutant's RTL.
+(define (candidate spec reference)
+  (define plan (spec reference #:proof_plan #t))
+  (lambda (_top #:proof_plan _requested) plan))
+
+(test-case "the declared queue supplier proves the wrapped receipt; FIFO order alone does not"
+  (check-true (transaction-for? (prove-design stall_parent BufferedStallConsumer) stall_parent outside))
+  (check-exn #rx"unconditional matching temporal supplier for sink"
+             (lambda () (prove-design stall_parent alternative:BufferedStallConsumer))))
 
 (test-case "only pending is public; the private stalled-word relation is an induction goal"
   (define (state-fields view)
@@ -44,7 +56,8 @@
   (check-exn #rx"requires discharge" (lambda () (transaction-step conditional-wrapper wrapped (hash) (hash))))
   (check-exn #rx"missing temporal supplier" (lambda () (forward stall_wrapper #f)))
   (check-exn #rx"matching temporal input monitors" (lambda () (forward stall_wrapper alternative:other_epoch)))
-  (check-exn #rx"forward-requirement/word not proved" (lambda () (forward transfer_only_wrapper wrapper_offer))))
+  (check-exn #rx"forward-requirement/word not proved"
+             (lambda () (prove-design transfer_only_wrapper (candidate StallConsumerWrapper stall_wrapper)))))
 
 (test-case "only a proved offer at the wrapper's own pins discharges its temporal premise"
   (check-true (transaction-for? producer fifo offer))
@@ -65,7 +78,7 @@
   (check-exn #rx"matching temporal supplier"
              (lambda () (prove-transaction stall_parent outside (hash-set sites "fifo" fifo-only) #:suppliers links)))
   (check-exn #rx"history-link/word not proved"
-             (lambda () (prove-transaction changing_offer outside sites #:suppliers links))))
+             (lambda () (prove-design changing_offer (candidate BufferedStallConsumer stall_parent)))))
 
 (define (pins rst valid ready data) (hash "reset" rst "valid" valid "ready" ready "word" data))
 (test-case "the next sample can continue the stall, handshake, or cancel on reset"

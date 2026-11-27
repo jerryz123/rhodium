@@ -222,8 +222,11 @@ an exact-receipt forwarding wrapper may retain the requirement: compare its
 external input batch to its child's actual input batch on unrestricted pins
 before admitting the child. Match the full requirement monitor (including
 initial state and updates), verify receipt forwarding separately, and seal the
-wrapper's sampler, not the child's. The [stalled-offer regression](tests/stalled-offer.rkt)
-checks both cuts and replays stall-only payload faults in RTL and rspecsim.
+wrapper's sampler, not the child's. The [standalone runner example](../../examples/formal/prove-stalled-offer.rhm)
+gets the cycle proof source, input requirements, forwarding occurrence and supplier
+link from [RSPECL](../../examples/formal/stalled-offer.rspl). The [regression](tests/stalled-offer.rkt)
+substitutes a real FIFO-only contract on the same queue, checks that it cannot
+discharge stability, and replays stall-only payload faults in RTL and rspecsim.
 
 For conditional forwarding, take the named, input-only predicate snapshot
 from the bound parent declaration. Evaluate it on external pins only, check
