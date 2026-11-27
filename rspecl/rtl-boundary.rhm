@@ -119,9 +119,15 @@ fun endpoint_members(top :: Module, endpoint :: ReadyValidEndpoint):
 /* A passive event source: binding it to a module checks the pins but proves no protocol. */
 class PinEvents(top :: Module, sampler :: LeafModel)
 
+/* Treat keyword labels as public event names; generated names can use a string-keyed map. */
+fun
+| rv_transfers(~& named :: Map):
+    transfer_source(for Map ((key, endpoint) in named): values(to_string(key), endpoint))
+| rv_transfers(endpoints :: Map): transfer_source(endpoints)
+
 /* Sample each named endpoint independently on valid && ready. Infer physical direction and
    payload type from the elaboration; do not suppress reset edges or merge concurrent transfers. */
-fun rv_transfers(endpoints :: Map.of(String, ReadyValidEndpoint)):
+fun transfer_source(endpoints :: Map.of(String, ReadyValidEndpoint)):
   unless endpoints.length() > 0 | error("rv_transfers requires at least one named endpoint")
   fun (top :: Module):
     def members = for Map ((name, endpoint) in endpoints):

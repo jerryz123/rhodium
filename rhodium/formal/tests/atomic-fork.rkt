@@ -64,5 +64,5 @@
     (check-equal? (rspecsim-events in) (hash))
     ;; Replay the *mutant's* pin values through the same executable transaction monitor.
     (define-values (_ verdict) (replay_sample view #f wrong))
-    (check-false (hash-ref verdict "atomic-transfer"))
-    (check-false (hash-ref verdict "allowed"))))
+    (check-equal? (for/hash ([(k v) verdict]) (values k v))
+                  (hash "atomic-transfer" #f "left-payload" #t "right-payload" #t "allowed" #f))))

@@ -18,10 +18,10 @@ spec for rtl.AtomicFork:
   observe egress[1].bits = ingress.bits when right_valid
 
   // Observe three independent handshakes; agreement is the promise below, not a sampling rule.
-  events transfers = rv_transfers({"accepted": ingress, "left": egress[0], "right": egress[1]})
+  events transfers = rv_transfers(~accepted: ingress, ~left: egress[0], ~right: egress[1])
   monitor:
     sample transfers
-    publish ["accepted", "left", "right"]
+    publish [accepted, left, right]
     batch take = present(accepted)
     batch send_left = present(left)
     batch send_right = present(right)

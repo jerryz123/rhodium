@@ -85,6 +85,12 @@ meta:
     let [value, ...] = [entries[key], ...]
     'Map{$key: $value, ...}'
 
+  /* In a publish list a bare name refers to the sampler, even when a local has the same name. */
+  fun published_name(entry :: Syntax):
+    match entry
+    | '$(id :: Identifier)': '$(field_name(id))'
+    | ~else: entry
+
   /* Split the optional care clause without inspecting either Rhombus expression. */
   fun observation(rhs :: Syntax):
     match rhs
@@ -186,6 +192,9 @@ expr.macro 'monitor_view: $line; ...':
           | ~else: 'operand($rhs ...)'
         record(guarantees, key, predicate, clause)
     | 'sample $s ...': record(attachment, "sample", '($s ...)', clause)
+    | 'publish [$(entry :: Group), ...]':
+        let [key, ...] = [entry, ...].map(published_name)
+        record(attachment, "publish", '[$key, ...]', clause)
     | 'publish $names ...': record(attachment, "publish", '($names ...)', clause)
     | 'assume $rest ...': syntax_meta.error("a monitor judges batches with guarantees, not assumptions", clause)
     | ~else: model_clause(clause)

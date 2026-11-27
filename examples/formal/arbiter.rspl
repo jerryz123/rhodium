@@ -62,7 +62,7 @@ spec for rtl.Arbiter:
 def transfer_contract:
   spec for rtl.Arbiter:
     let word = ingress[0].bits.type
-    events transfers = rv_transfers({"lane0": ingress[0], "lane1": ingress[1], "sent": egress})
+    events transfers = rv_transfers(~lane0: ingress[0], ~lane1: ingress[1], ~sent: egress)
     monitor:
       sample transfers
       publish []
