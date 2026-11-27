@@ -1,0 +1,13 @@
+#lang rhombus
+/* Proves priority capture and pre-edge readback from the public arbiter and gate contracts. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rspecl/runner.rkt").prove_design
+  "gated-capture.rhdl" as rtl
+  "gated-capture.rspl" as spec
+
+module main:
+  def seal = prove_design(elaborate(rtl.ArbitratedCapture()).top, spec.ArbitratedCapture)
+  println("Proved ArbitratedCapture: unrestricted requests, lane A wins ties, capture reads the previous word")

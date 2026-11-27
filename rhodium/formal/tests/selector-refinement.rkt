@@ -114,6 +114,10 @@
   (prove-parent (capture_cut raw) capture_spec registered-view #:child-evidence capture-evidence
                 #:relation (lambda (cut spec) (bveq (hash-ref (hash-ref cut "gate") "held") (hash-ref spec "saved")))))
 (define verified-capture (certify-outer #f))
+;; The cycle-first oracle projects its own cycle state, not the generic runner's child history.
+(define (cycle-capture-contract)
+  (derive-transaction verified-capture arbitrated_capture (ArbitratedCapture #:transaction_view #t)
+                      (hash "previous" "saved")))
 
 (test-case "conditional wrapper needs its declared premise and both feasible clock phases"
   (check-exn #rx"lanes/exclusive not proved" (lambda () (prepare-proved-wiring (gate_cut) (list verified-register))))
@@ -132,7 +136,7 @@
 
 (test-case "derive pre-edge capture readback from the sealed cycle spec, then replay only public pins"
   (define v (ArbitratedCapture arbitrated_capture #:transaction_view #t))
-  (define result (derive-transaction verified-capture arbitrated_capture ArbitratedCapture))
+  (define result (cycle-capture-contract))
   (check-true (transaction-for? result arbitrated_capture v))
   (check-true (transaction-for? result arbitrated_capture (ArbitratedCapture #:transaction_view #t)))
   (define (step old rst capture a b readback)
@@ -258,11 +262,10 @@
              (lambda () (prove-forwarded-transaction arbitrated_capture (faulty:crossed_payload)
                            "gate" gate-contract gate-events #:combinational (hash "arb" verified-arbiter)))))
 
-(test-case "forwarded parent seal and independent cycle-first proof agree on simultaneous requests"
-  (define independent (derive-transaction verified-capture arbitrated_capture ArbitratedCapture))
-  (check-true (transaction-for? parent-contract arbitrated_capture parent-events))
-  (check-equal? (hash-count (transaction-input-premises parent-contract parent-events)) 0)
-  (for ([proof (list parent-contract independent)])
+(test-case "generic parent, handwritten forwarder and cycle-first oracle agree on simultaneous requests"
+  (for ([proof (list (prove-design arbitrated_capture ArbitratedCapture) parent-contract (cycle-capture-contract))])
+    (check-true (transaction-for? proof arbitrated_capture parent-events))
+    (check-equal? (hash-count (transaction-input-premises proof parent-events)) 0)
     (define (step old reset capture a b readback)
       (define batch (sample-transaction proof parent-events
                       (hash "reset" reset "capture" capture "request_a" a "request_b" b
@@ -363,6 +366,11 @@
              (lambda () (duplicate_capture_trace (list (hash-set pins "reset" #t) pins)))))
 
 (test-case "duplicating an actual arbiter grant fails before either gate contract can restrict the edge"
+  ;; Same two children as the correct design: even proved arbiter exclusivity does not
+  ;; establish gate exclusivity if the same winning pin drives both grants.
+  (define plan (ArbitratedCapture arbitrated_capture #:proof_plan #t))
+  (define (candidate _ #:proof_plan _requested) plan)
+  (check-duplicated-grant (lambda () (prove-design duplicate_capture candidate)))
   (check-duplicated-grant (lambda () (prove-from-grants duplicate_capture transaction_zero_view strong-grants)))
   (check-duplicated-grant (lambda () (prove-from-bit duplicate_capture zero_from_bit_view))))
 
@@ -394,6 +402,7 @@
                 (list #f 0 (hash-ref pins "word_a"))))
 
 (test-case "raw routing fails the gate pin promise before identical event batches can license reuse"
+  (check-raw-discharge (lambda () (prove-design raw_capture faulty:RawCapture)))
   (check-raw-discharge (lambda () (prove-forwarded-transaction raw_capture parent-events "gate" gate-contract gate-events))))
 
 (test-case "raw double grants fail on the actual gate inputs before one-bit monitor induction"

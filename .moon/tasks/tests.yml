@@ -563,6 +563,7 @@ tasks:
       env PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-arbiter.rhm
       env PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-registered-lane-selector.rhm
       env PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-gated-capture.rhm
+      env PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-arbitrated-capture.rhm
       env PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-arbiter-queue.rhm
       env PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-buffered-arbiter-queue.rhm
       env PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-gated-arbiter-queue.rhm

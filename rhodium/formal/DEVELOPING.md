@@ -396,8 +396,10 @@ match every cycle event's name and payload sort; its values and presence are
 proof goals. Without such a map the runner samples the existing view as before.
 Only after this succeeds may the clockless cycle certificate establish the
 stateless public monitor. The [handwritten oracle and replay](tests/arbiter-refinement.rkt)
-remain independent; [ArbitratedCapture](tests/selector-refinement.rkt) consumes
-the generic grant seal.
+remain independent. The [ArbitratedCapture proof](../../examples/formal/prove-arbitrated-capture.rhm)
+uses the arbiter and gate transaction seals and relates its word to the gate's public history.
+The [regression](tests/selector-refinement.rkt) compares its unconditional seal with the
+handwritten proofs and replays the raw-request witness at the gate pins.
 `combinational_sample(snapshot, pins)` accepts exact-name, exact-width
 bitvectors or fitting naturals and returns outputs and partial-operation
 obligations, including those in child instances. Combinational preflight

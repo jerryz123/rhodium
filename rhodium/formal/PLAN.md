@@ -83,8 +83,9 @@ treat a matching batch schema as proof that two monitors agree.
    retains its off-reset enable-exclusivity premise. The
    [GatedCapture proof](../../examples/formal/prove-gated-capture.rhm) discharges
    that premise on the gated enables and retains the wrapper's own
-   `capture_exclusive`. Next, discharge that premise on ArbitratedCapture's
-   grant wires with the generic runner. Keep the handwritten harnesses as
+   `capture_exclusive`. The [ArbitratedCapture proof](../../examples/formal/prove-arbitrated-capture.rhm)
+   discharges that premise on the gate's RTL pins with the Arbiter grant contract;
+   the outer capture contract has no input premise. Keep the handwritten harnesses as
    differential oracles. For parents, drive the
    existing generic obligations from the spec's declared child views and
    supplier roles. [LoggedTwoTagROB](../../examples/formal/prove-logged-two-tag-rob.rhm)

@@ -279,15 +279,15 @@ See [two independent marks](tests/parallel-monitors.rspl) and
 A declaration containing only a monitor and its refinement is requested with `~transaction_view: #true`; it does not predict cycle outputs.
 
 If the cycle spec is already proved, the spec can declare how each monitor field
-relates to its own cycle state. For example, [ArbitratedCapture](../../examples/formal/gated-capture.rspl)
+relates to its own cycle state. For example, [RegisteredLaneSelector](../../examples/formal/granted-selector.rspl)
 says:
 
 ```rhombus
 refinement:
-  relate previous = saved
+  relate previous = last_word
 ```
 
-Call `(derive-transaction cycle-proof top ArbitratedCapture)` from [rspecl/proof.rkt](../../rspecl/proof.rkt).
+Call `(derive-transaction cycle-proof top RegisteredLaneSelector)` from [rspecl/proof.rkt](../../rspecl/proof.rkt).
 Pass the spec constructor, not a field map. The checker proves that reset
 establishes the relation and that each legal edge preserves it. On a capture,
 `selected` must show the previous word, not that edge's winner. The same form
@@ -567,8 +567,10 @@ gates the enables. The [standalone gate proof](../../examples/formal/prove-gated
 checks exclusivity at those enable pins and checks that the gate and selector
 report the same capture and pre-edge readback. Its result retains
 `capture_exclusive`; it cannot be stepped as an unconditional contract. One level up,
-`ArbitratedCapture` proves the assumption using arbiter grants and accepts
-unrestricted requests: on an enabled tie it stores lane A's word. Wiring raw
+the [ArbitratedCapture proof](../../examples/formal/prove-arbitrated-capture.rhm)
+uses the Arbiter grant contract to discharge the assumption on the gate pins.
+It accepts unrestricted requests: an enabled tie reports the previous word
+and stores lane A's word. Wiring raw
 requests to the wrapper instead fails when both request on an enabled non-reset edge.
 
 ### Specify a parent without copying its implementation

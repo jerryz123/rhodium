@@ -36,7 +36,10 @@ spec for rtl.ArbitratedCapture:
   transactions capture_monitor(capture_events)
 
   refinement:
-    relate previous = saved
+    child arb: grants.Arbiter
+    child gate: GatedCapture
+    history held_word from gate.previous: Bits(2)
+    relate previous = held_word
 
 /* A weaker observer: all nonzero winners are indistinguishable, including on readback. */
 fun zero_monitor(sampler :: Function.of_arity(2)):
