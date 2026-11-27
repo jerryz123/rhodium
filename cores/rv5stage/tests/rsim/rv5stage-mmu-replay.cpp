@@ -29,6 +29,7 @@ constexpr std::uint8_t PIPE_SLOW = 0, PIPE_LOAD_HIT = 1, PIPE_STORE_HIT = 2,
 constexpr std::uint8_t REASON_TRANSLATION = 6, REASON_ORDERED = 7;
 
 bool instruction_flush;
+bool kill_fetch_s1 = false;
 
 bool data_request_valid;
 
@@ -581,8 +582,15 @@ void check_canceled_pte_reply() {
   tick();
   falling();
   manual_pte_valid = 0;
-  // The shared walker owns the canceled read until this edge. The fetch
-  // offered during Drain received replay, so model the frontend retry now.
+  // The orphan cannot supply the next translation. First admit a noncanonical
+  // alias: it must fault without issuing a PTE or consuming the old reply.
+  instruction_fault_expected = true;
+  fetch_word(VIRTUAL_ADDRESS ^ (UINT64_C(1) << 53));
+  instruction_fault_expected = false;
+  CHECK(manual_pte_requests == accepted_before + 1);
+  // The original fetch offered during Drain received replay. Its canonical
+  // retry must use the new root rather than the intervening fault.
+  instruction_address = VIRTUAL_ADDRESS;
   instruction_request_valid = 1;
   tick();
   falling();
@@ -595,6 +603,73 @@ void check_canceled_pte_reply() {
   tick();
   falling();
   invalidate_all = 0;
+}
+
+// Present the fetch in S0, then collide its S1 miss with another miss.
+// Bit 53 changes canonicality without changing any Sv39 VPN or page offset.
+void check_walk_arbitration(bool probe, bool kill_fetch, bool fetch_canonical) {
+  constexpr auto flip = UINT64_C(1) << 53;
+  constexpr auto fetch_base = UINT64_C(0xffffffc040008000);
+  constexpr auto other_base = UINT64_C(0x80004000);
+  const auto fetch_va = fetch_base ^ (fetch_canonical ? 0 : flip);
+  const auto other_va = other_base ^ (fetch_canonical ? flip : 0);
+  const auto saved_fault_va = fault_phase_address;
+  const bool saved_fault_phase = page_fault_phase;
+  clear_translations();
+  memory_ready = false;
+  memory_idle = true;
+  instruction_address = fetch_va;
+  instruction_request_valid = true;
+  if (probe)
+    vector_precheck_in.prequest = {.pvalid = 1, .pbits = {.pfirst = other_va, .plast = other_va}};
+  settle();
+  CHECK(instruction_out.prequest.pready && (!probe || vector_precheck_out.prequest.pready));
+  tick();
+  falling();
+  instruction_request_valid = false;
+  vector_precheck_in.prequest = {};
+  kill_fetch_s1 = kill_fetch;
+  page_fault_phase = true;
+  fault_phase_address = other_va;
+  data_request_valid = !probe;
+  tick(); // Walk admission. No extra classification cycle is allowed.
+  const bool fetch_wins = !probe && !kill_fetch;
+  const bool canonical = fetch_wins == fetch_canonical;
+  CHECK(bool(data_memory_out.prequest.pvalid) == canonical);
+  if (canonical) {
+    const auto winner = fetch_wins ? fetch_va : other_va;
+    CHECK(data_memory_out.prequest.pbits.pmemory.pcontext.porigin &&
+          data_memory_out.prequest.pbits.pmemory.paddress == 0x1000 + 8 * ((winner >> 30) & 511));
+  }
+  falling();
+  kill_fetch_s1 = false;
+  if (!canonical) {
+    tick(); // Capture the fault for the winning owner, without any PTE read.
+    CHECK(!data_memory_out.prequest.pvalid);
+    if (probe) {
+      CHECK(vector_precheck_out.presponse.pvalid && !vector_precheck_out.presponse.pbits);
+    } else if (fetch_wins) {
+      CHECK(!data_out.prequest_ufault);
+      instruction_fault_expected = true;
+      fetch_word(fetch_va);
+      instruction_fault_expected = false;
+    } else {
+      CHECK(data_out.prequest.pready && data_out.prequest_ufault &&
+            !data_out.prequest_uaccess_ufault && request_fault_address == other_va);
+    }
+  }
+  falling();
+  data_request_valid = false;
+  page_fault_phase = saved_fault_phase;
+  fault_phase_address = saved_fault_va;
+  vector_precheck_in.prelease.pvalid = probe;
+  invalidate_all = true;
+  tick(); // Cancel a stalled PTE or retire the losing speculative attempt.
+  falling();
+  invalidate_all = false;
+  vector_precheck_in.prelease.pvalid = false;
+  tick();
+  CHECK(!data_memory_out.prequest.pvalid);
 }
 
 void check_prefetch(std::uint8_t valid, std::uint64_t address = 0,
@@ -635,6 +710,7 @@ void drive() {
     pipeline_memory_in.pcommit_uready = 1;
     instruction_in = {};
     instruction_in.pflush = instruction_flush;
+    instruction_in.ps1_ukill = kill_fetch_s1;
     instruction_in.prequest.pvalid = instruction_request_valid;
     instruction_in.prequest.pbits.paddress = instruction_address;
     data_in.prequest.pvalid = data_request_valid;
@@ -1650,6 +1726,11 @@ void stimulus() {
       tick();
     CHECK(instruction_pte_requests == 7 && instruction_requests_seen == 5);
     detached_walk_phase = 1;
+    for (bool canonical : {false, true}) {
+      check_walk_arbitration(false, false, canonical); // Fetch beats WB demand.
+      check_walk_arbitration(false, true, canonical);  // S1 kill admits WB demand.
+      check_walk_arbitration(true, false, canonical);  // Vector probe beats fetch.
+    }
     for (int flush_at = 0; flush_at < 6; flush_at++)
       finish_detached_walk(flush_at);
     finish_detached_walk(3, 1); // Fault discovered after an earlier redirect.

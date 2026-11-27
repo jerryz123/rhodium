@@ -101,7 +101,11 @@ returned fill payload to retain a failed walk for replay. Both cores use
 The superscalar MMU also uses it for data failures and queued data misses.
 Host-only harts invalidate these owners on every SATP write, so a queued miss
 can take its root from SATP at launch. H-enabled harts retain both root PPNs.
-The walker always accepts a full lookup.
+The walker always accepts a full lookup. By default it checks the request VA
+itself. With `~prechecked_va: #true`, the caller also supplies
+`request_va_canonical`: on request transfer it must equal the Sv39 canonicality
+of that lookup's VA. This lets an arbiter check candidates before selecting
+one. It changes neither first-PTE timing nor nested address checks.
 
 Successful fills update a matching entry or replace cyclically. Faults never
 allocate. Whole-bank invalidation wins over a simultaneous fill, removes global

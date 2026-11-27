@@ -82,7 +82,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def mapped_width = physical_map.address_width_for(fun (_attributes): #true)
   inst itlb(RiscvTranslationTlb(tlb_entries, ~host_root_epoch: !hypervisor, ~physical_address_width: mapped_width))
   inst dtlb(RiscvTranslationTlb(tlb_entries, ~host_root_epoch: !hypervisor, ~physical_address_width: mapped_width))
-  inst walker(RiscvTranslationWalker(~svnapot: svnapot))
+  inst walker(RiscvTranslationWalker(~svnapot: svnapot, ~prechecked_va: #true))
   def itlb_result = riscv_host_result(itlb.translation)
   // A detached fetch must not trap, but a completed page fault is reusable
   // translation evidence until architectural invalidation. Keep its exact
@@ -325,6 +325,12 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def start_data_walk = can_start_walk & !start_probe_walk & !start_instruction_walk & data_miss
   walker.request.valid <== start_instruction_walk ||| start_data_walk ||| start_probe_walk
   walker.request.bits <== mux(start_data_walk ||| start_probe_walk, dtlb.lookup, itlb.lookup)
+  // Classify the actual VA of each contender, not the arbitrated TLB port.
+  // In particular, a split data walk uses the active fragment's fault VA.
+  walker.request_va_canonical <== priority_mux(~default: instruction_virtual_address.sv39_canonical()):
+    start_probe_walk: page_probe.request.bits.address.sv39_canonical()
+    start_data_walk: data_virtual_address.sv39_canonical()
+
   def walk_lookup = walker.accepted_lookup
 
   def walker_request_fire = walker.request.fire()

@@ -83,6 +83,10 @@ invalidate translations or cancel accepted page-table response ownership.
    state in `cores/common/mmu`, and RV5Stage arbitration and integration here.
 2. Match a transient fault against the full VA in the admitted walk lookup.
    No instruction, data, or probe walk may replace it while the fault is pending.
+   Compute Sv39 canonicality on the S1 fetch VA, active data/fragment VA, and
+   registered vector probe VA independently. Select the bit with the walk
+   grant, not from the already-multiplexed DTLB or walker request. It is used
+   only at admission; the retained lookup remains the source of the full VA.
    Keep the cached instruction page-fault key separate: it can outlive later walks.
    In host-only builds the key omits the SATP root PPN: as with the host ITLB,
    every SATP write must invalidate the entry, even on a fault-completion edge.

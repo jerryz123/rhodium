@@ -39,12 +39,20 @@ bundle RiscvPageWalkFrame():
 
 /* Walks host Sv39 or nested VS/Sv39x4 using one active frame and a saved VS continuation.
    Cancellation suppresses completion but drains an already accepted PTE read. */
-sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
+sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false,
+                                    ~prechecked_va: prechecked_va :: Boolean = #false):
   interface request(Decoupled(RiscvTlbLookup()), ~role: consumer)
   output accepted_lookup: RiscvTlbLookup()
   interface completion(Irrevocable(RiscvTlbMapping()), ~role: producer)
   interface memory(RiscvTranslationMemory(), ~role: requester)
   input cancel: Bool
+  // Multi-source callers can classify each candidate before selecting the
+  // request. This bit belongs to the admission edge, not the retained lookup.
+  def host_va_canonical :: Bool = if prechecked_va
+  | block:
+      input request_va_canonical: Bool
+      request_va_canonical
+  | request.bits.virtual_address.sv39_canonical()
 
 
   /* Walk frame, continuation, and physical-read ownership */
@@ -89,6 +97,7 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
   def request_fire = request.fire()
   when request_fire:
     operation <== request.bits
+    assert(host_va_canonical === request.bits.virtual_address.sv39_canonical(), "walk_canonical_matches_owner")
 
   def memory_fire = memory.request.fire()
   def owns_response = (state === RiscvPageWalkState.Response) ||| (state === RiscvPageWalkState.Drain)
@@ -191,7 +200,7 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
     phase <== mux(request.bits.context.vs_mode === RiscvVSMode.Sv39, RiscvPageWalkPhase.Virtual, RiscvPageWalkPhase.GuestFinal)
     frame <== root_frame(mux(request.bits.context.vs_mode === RiscvVSMode.Sv39, request.bits.context.vs_root_ppn, request.bits.context.g_root_ppn))
     def direct_host_walk = !request.bits.virtualized & (request.bits.context.vs_mode === RiscvVSMode.Sv39)
-    def host_first_state = mux(request.bits.virtual_address.sv39_canonical(), RiscvPageWalkState.Request, RiscvPageWalkState.Complete)
+    def host_first_state = mux(host_va_canonical, RiscvPageWalkState.Request, RiscvPageWalkState.Complete)
     state <== mux(direct_host_walk, host_first_state, RiscvPageWalkState.CheckAddress)
   elsewhen (checking_address & (bad_virtual_address ||| bad_guest_address ||| bare_overflow)):
     result <== outcome(address_fault, Bits(56)(0), zero_leaf)
