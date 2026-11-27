@@ -353,38 +353,48 @@ void splat_lineage() {
 }
 
 // Feed three-cycle L1 hit replies, or hold the VRF to fill the registered window.
-enum class Window { hit_stream, younger, promote, masked_oldest };
+enum class Window { hit_stream, cold_oldest, younger, promote, masked_oldest };
 void writeback_window(Window scenario) {
-  constexpr unsigned credits=5, metadata=8, rows=16, claims=(1u<<rows)-1;
+  constexpr unsigned credits=5, metadata=16, rows=16, claims=(1u<<rows)-1;
+  const bool cold=scenario==Window::cold_oldest;
   const bool block_write=scenario!=Window::hit_stream, masked=scenario==Window::masked_oldest;
-  oldest_owner=masked ? 2 : 1;
+  oldest_owner=(masked || cold) ? 2 : 1;
   launch_0_in={}; memory_in={}; chain_in={}; write_in={};
   memory_in.prequest.pready=1; write_in.pready=!masked;
-  chain_in.polder_uaccesses=std::uint64_t(block_write && !masked)<<16;
+  chain_in.polder_uaccesses=std::uint64_t(block_write && !masked && !cold)<<16;
   launch_0_in.pbits.pissue.pdescriptor.pmasked=masked;
   mask_0_in.pdata.words.fill(~0u);
   launch_0_in.pbits.ppages[0]=0x60;
+  // Offset the cold load by one byte: 16 logical rows need 17 physical requests.
+  launch_0_in.pbits.pissue.pdescriptor.pscalar=cold ? 1 : 0;
   launch_0_in.pbits.pissue.pdescriptor.pstate.pvl=rows*16; launch_0_in.pbits.pissue.pdescriptor.pstate.pvtype=3; // e8,m8
   launch_0_in.pbits.pissue.pdescriptor.pinstruction=8u<<7; launch_0_in.pbits.pissue.powner=2;
   launch_0_in.pvalid=1; offer_operands(false); eval(); CHECK(launch_0_out.pready && prepare_out.pready); tick_model(); prepare_in.pvalid=launch_0_in.pvalid=0;
   unsigned requests=0, responses=0, grants=0, finishes=0;
   unsigned cycle=0;
-  std::array<unsigned,rows> accepted{};
+  std::array<unsigned,rows+1> accepted{};
   auto edge=[&] {
-    memory_in.presponse.pvalid=responses<requests && cycle>=accepted[responses]+3;
+    memory_in.presponse.pvalid=(!cold || cycle>=metadata+8) && responses<requests && cycle>=accepted[responses]+3;
     memory_in.presponse.pbits.pdata.words=data(responses);
     eval();
     CHECK(chain_out.punwritten_uvd==(std::uint64_t(claims & (claims<<grants))<<16));
     if (memory_out.prequest.pvalid) {
-      CHECK(requests<rows && memory_out.prequest.pbits.paddress==0x60000+16*requests);
+      CHECK(requests<rows+unsigned(cold) && memory_out.prequest.pbits.paddress==0x60000+16*requests);
       accepted[requests]=cycle;
-      if (!block_write) CHECK(cycle==accepted[0]+requests);
+      if (!block_write || (cold && requests<metadata)) CHECK(cycle==accepted[0]+requests);
       ++requests;
     }
     responses+=memory_in.presponse.pvalid && memory_out.presponse.pready;
     if (write_out.pvalid) {
       CHECK(!chain_in.polder_uaccesses && grants<responses && chain_out.pwrite_uowner==2);
-      CHECK(write_out.pbits.paddress==16+grants && write_out.pbits.pdata.words==data(grants));
+      auto expected=data(grants);
+      if (cold) {
+        for (unsigned i=0;i<expected.size();++i) {
+          const auto next=i+1<expected.size() ? expected[i+1] : data(grants+1)[0];
+          expected[i]=(expected[i]>>8) | (next<<24);
+        }
+      }
+      CHECK(write_out.pbits.paddress==16+grants && write_out.pbits.pdata.words==expected);
       grants+=write_in.pready;
     }
     finishes+=finished_out.pvalid;
@@ -393,6 +403,15 @@ void writeback_window(Window scenario) {
     CHECK(!finishes || grants==rows);
     tick_model(); ++cycle;
   };
+  if (cold) {
+    for (unsigned t=0;t<metadata+8;++t) edge();
+    CHECK(requests==metadata && !responses && !grants);
+    edge(); CHECK(requests==metadata && responses==1);
+    edge(); CHECK(requests==metadata+1);
+    for (unsigned t=0;t<rows+12 && !finishes;++t) edge();
+    CHECK(responses==rows+1 && grants==rows && finishes==1);
+    return;
+  }
   if (!block_write) {
     for (unsigned t=0;t<rows+10 && !finishes;++t) edge();
     CHECK(requests==rows && responses==rows && grants==rows && finishes==1);
@@ -404,7 +423,7 @@ void writeback_window(Window scenario) {
   if (scenario==Window::promote) {
     oldest_owner=2;
     for (unsigned t=0;t<metadata+3;++t) edge();
-    CHECK(requests==credits+metadata && responses==credits && !grants);
+    CHECK(requests==rows && responses==credits && !grants);
     write_in.pready=1;
     for (unsigned t=0;t<rows+12 && !finishes;++t) edge();
     CHECK(grants==rows && finishes==1);
@@ -471,9 +490,10 @@ void physical_ranges(bool older_store, bool alias) {
   CHECK(!busy && peer_out.pready);
 }
 
-// Hold the older store's source read. The younger load can issue first,
-// but its blocked writeback must not starve either store address or ACK.
-void blocked_store_source() {
+// Stall L1D with either kind offered first. That grant is irrevocable;
+// the older store gets subsequent contested grants.
+// The older store must finish even with load writeback still blocked.
+void oldest_eligible(bool hold_store) {
   const auto stalled_before = stalled_results, granted_before = granted_results;
   launch_1_in={}; prepare_in={}; memory_in={}; write_in={}; chain_in={}; read_result_in={};
   read_in.pready=0;
@@ -483,32 +503,44 @@ void blocked_store_source() {
   launch_1_in.pbits.pissue.powner=prepare_in.pbits.powner=3; launch_1_in.pbits.ppages[0]=0x60;
   prepare_in.pbits=launch_1_in.pbits.pissue;
   eval(); CHECK(launch_1_out.pready && prepare_out.pready); tick_model();
-  prepare_in.pvalid=launch_1_in.pvalid=0; launch_0_in=launch_1_in; launch_0_in.pbits.pissue.powner=0; launch_0_in.pvalid=1; launch_0_in.pbits.pissue.pdescriptor.pcontrol.pstore=0;
+  prepare_in.pvalid=launch_1_in.pvalid=0;
+  if (hold_store) {
+    read_in.pready=1;
+    for (unsigned n=0;n<10;++n) {
+      eval(); const bool capture=read_out.pvalid;
+      tick_model(); read_result_in.pvalid=capture;
+    }
+    eval(); CHECK(memory_out.prequest.pvalid && memory_out.prequest.pbits.pstore);
+  }
+  launch_0_in=launch_1_in; launch_0_in.pbits.pissue.powner=0; launch_0_in.pvalid=1; launch_0_in.pbits.pissue.pdescriptor.pcontrol.pstore=0;
   launch_0_in.pbits.pissue.pdescriptor.pscalar=0x7010; launch_0_in.pbits.pissue.pdescriptor.pinstruction=12<<7; launch_0_in.pbits.ppages[0]=0x70;
   offer_operands(false); eval(); CHECK(launch_0_out.pready && prepare_out.pready); tick_model(); prepare_in.pvalid=launch_0_in.pvalid=0;
   unsigned sent=0,received=0,written=0,finished=0;
-  constexpr unsigned addresses[]={0x70010,0x60000,0x60010,0x70020};
+  const std::array<unsigned,4> addresses = hold_store
+    ? std::array<unsigned,4>{0x60000,0x60010,0x70010,0x70020}
+    : std::array<unsigned,4>{0x70010,0x60000,0x60010,0x70020};
+  const auto is_store=[&](unsigned i) { return addresses.at(i)<0x70000; };
   for (unsigned t=0;t<100 && finished!=3;++t) {
-    read_in.pready=t>=3;
-    memory_in.prequest.pready=t>=10; // held load offer cannot switch to the now-ready store
+    read_in.pready=hold_store || t>=3;
+    memory_in.prequest.pready=t>=10;
     memory_in.presponse.pvalid=received<sent && t>=15;
-    memory_in.presponse.pbits.pstore=received==1 || received==2;
+    memory_in.presponse.pbits.pstore=received<4 && is_store(received);
     memory_in.presponse.pbits.pdata.words=data(received);
-    write_in.pready=(finished&2)!=0; // wait for store owner 3 before granting either load write
+    write_in.pready=(finished&2)!=0 && stalled_results>stalled_before;
     eval();
     if (memory_out.prequest.pvalid) {
       CHECK(sent<4 && memory_out.prequest.pbits.paddress==addresses[sent]);
-      CHECK(bool(memory_out.prequest.pbits.pstore)==(sent==1 || sent==2));
+      CHECK(bool(memory_out.prequest.pbits.pstore)==is_store(sent));
       sent+=memory_in.prequest.pready;
     }
     received+=memory_in.presponse.pvalid && memory_out.presponse.pready;
     if (write_out.pvalid) {
       CHECK(chain_out.pwrite_uowner==0 && write_out.pbits.paddress==24+written);
-      CHECK(write_out.pbits.pdata.words==data(written ? 3 : 0));
+      CHECK(write_out.pbits.pdata.words==data(written ? 3 : hold_store ? 2 : 0));
       written+=bool(write_in.pready);
     }
     if (finished_out.pvalid) {
-      if (finished_out.pbits.powner==3) { CHECK(!written && received>=3); finished|=2; }
+      if (finished_out.pbits.powner==3) { CHECK(!written && received>=(hold_store ? 2u : 3u)); finished|=2; }
       else { CHECK(finished_out.pbits.powner==0 && written==2); finished|=1; }
     }
     const bool capture=read_in.pready && read_out.pvalid;
@@ -636,10 +668,10 @@ int main() {
     displaced_lineage(20);
     displaced_lineage(32);
     displaced_lineage(32,true);
-    for (auto scenario : {Window::hit_stream, Window::younger, Window::promote, Window::masked_oldest})
+    for (auto scenario : {Window::hit_stream, Window::cold_oldest, Window::younger, Window::promote, Window::masked_oldest})
       writeback_window(scenario);
     for (bool store : {false,true}) for (bool alias : {false,true}) physical_ranges(store,alias);
-    blocked_store_source();
+    for (bool hold_store : {false,true}) oldest_eligible(hold_store);
     independent_row_credits();
     for (bool store : {false,true}) independent_starts(store);
     splat_lineage();

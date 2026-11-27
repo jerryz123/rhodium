@@ -128,8 +128,6 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
     def issue = load_start.bits.issue
     independent_load <== (issue.kind === MemoryIssueKind.Contiguous) & (load_start.bits.service === VectorMemoryService.Cached) & !issue.command.masked & !issue.command.layout.nf.any()
   assert(!(start[LoadPath].fire() & start[StorePath].fire()), "older_vector_memory_cursor_installed_first")
-  /* Prefer the older ready cursor. Hold the selected offer until accepted, even
-     if the other cursor becomes ready while L1D is stalled. */
   /* Match prepared operands to their authorized cursor. Only ordered indexed
      elements wait for a reply here; unordered elements share the beat credits. */
   fun admitted_rows(source :: Endpoint, path :: Nat) :~ Endpoint:
@@ -191,6 +189,7 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
   store_port.grants <== vec([!scattering, scattering]).into(MaybeOneHot(2))
   Array(store_merger.beat, scatter_beat) <=> store_port.ingress
   def store_rows = store_port.egress |> gate_flow(store_acks.ingress.ready ||| !store_port.egress.bits.enabled.any())
+  // Prefer the older eligible cursor. Never replace a stalled offer.
   reg locked(~init: Bool(#false))
   reg locked_store(Bool)
   def store = mux(locked, locked_store, store_rows.valid & (older_store ||| !load_rows.valid))

@@ -73,7 +73,7 @@ interface VectorPredicateTap(dlen :: PosInt):
 def MemoryRowCredits = 5
 def MemoryStoreAckEntries = 5
 def MemoryCreditCount = Bits(index_width(MemoryRowCredits + 1))
-def MemoryRequestEntries = 8
+def MemoryRequestEntries = 16
 // Pending load work includes requests still at L1D and rows buffered at the VLSU.
 def MemoryPendingCount = Bits(index_width(MemoryRequestEntries + MemoryRowCredits + 1))
 

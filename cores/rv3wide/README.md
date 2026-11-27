@@ -129,10 +129,11 @@ a fully disabled physical beat advances without issuing a cache request. A faile
 precise element accesses rather than raising a fault on a masked-off address.
 VLIQ and VSIQ advance separate address cursors over one L1D port. Loads normally
 reserve one of five return slots; stores independently track up to five outstanding
-ACKs. The older eligible cursor wins, so a full store tracker cannot hide a
-disjoint load with return space. An oldest, direct, unmasked, single-field contiguous
-cached load can instead have up to eight physical requests awaiting replies;
-the VLSU still buffers only five returned beats. Admission uses registered
+ACKs. The older eligible cursor wins; an already offered request keeps its grant
+under backpressure. An oldest, direct, unmasked, single-field contiguous
+cached load can use the sixteen-entry request metadata FIFO without reserving
+return slots. A maximum-size group spans 16 rows, or 17 physical beats if
+displaced. The VLSU still buffers only five returned beats. Admission uses registered
 occupancy, not same-cycle credit release. The two start ports are independent: a blocked start cannot
 hide an eligible head of the other kind. Delivery of the final physical load reply
 to the VLSU return buffer ends the memory dependency; it need not wait for a VRF

@@ -206,7 +206,7 @@ the scalar ordering signal: reclamation and physical drain can occur separately.
 Inside `distributed/`, `frontend/` owns precise checks and admission,
 `backend/` owns the scheduler, scoreboard, register-file grants and sequencers,
 `mem/` owns physical requests and response alignment, and `exu/` owns arithmetic.
-The VLSU tracks eight load contexts and buffers five returned load beats.
+The VLSU has sixteen load metadata entries and buffers five returned load beats.
 Store acknowledgements use a separate five-entry FIFO of element-boundary bits;
 the resident store cursor owns them until drain. Both cached and uncached replies
 echo the request kind in order. Check each cursor's capacity before arbitrating;
