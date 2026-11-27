@@ -405,6 +405,19 @@ check:
 check:
   ~eval
   import lib("rspecl/language.rhm").spec
+  import lib("examples/formal/logged-two-tag-rob.rhdl") as rtl
+  import lib("examples/formal/ordered-retirement.rspl").ordered_retirement
+  import lib("examples/formal/two-tag-rob.rspl").TwoTagROB
+  spec for rtl.LoggedTwoTagROB:
+    transactions ordered_retirement()
+    refinement:
+      child rob: TwoTagROB
+      forward_batch other
+  ~throws "forward_batch must name a declared child"
+
+check:
+  ~eval
+  import lib("rspecl/language.rhm").spec
   import lib("rhodium/formal/tests/spec-dsl-fixture.rhdl") as rtl
   spec for rtl.Swap:
     observe old = width

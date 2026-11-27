@@ -106,8 +106,9 @@ edge clears `has_commit`; until the first transfer, `last_tag` and
 `retire.valid && retire.ready`, the next record contains the retiring tag
 and its first matching-generation completion payload. Otherwise the record
 holds, even when the stalled offer differs from the saved record. Its
-[RSPECL spec](../../examples/formal/logged-two-tag-rob.rspl) and the sealed
-ROB suffice to issue a new seal for the recorder. A [consumer](tests/logged-refinement.rkt)
+[standalone proof](../../examples/formal/prove-logged-two-tag-rob.rhm) runs the
+[RSPECL spec](../../examples/formal/logged-two-tag-rob.rspl) against the wrapper RTL:
+the only child evidence the recorder uses is the sealed ROB contract. A [consumer](tests/logged-refinement.rkt)
 uses that parent seal alone to prove readback after capture. The public contract also declares ordered retirement on the parent pins: the [ordinal readback proof](tests/logged-ordinal.rkt)
 shows that the sample immediately following the kth retirement in a reset epoch,
 unless it is itself a reset, reads back the kth grant's tag and its first matching-generation completion
@@ -267,8 +268,11 @@ certified ordered history instead. Pass `prove-transaction` a map from
 occurrence names to seals (empty for a register-only leaf). Each child samples
 its own driven pins and has independent history, even if two entries use the
 same seal. The parent sampler defines its own events: they need not be
-forwarded on same-named pins. The single-seal wrapper shorthand additionally
-checks whole-batch forwarding when the child is a general monitor.
+forwarded on same-named pins. If they are forwarded, declare `forward_batch rob`
+after `child rob: ...`. This checks the child's complete event batch on the
+same-named parent pins against the batch on its actual occurrence, before assuming
+child legality. The parent can still add events and state, as the recorder does.
+The low-level single-seal shorthand requests the same check.
 See [two independent marks](tests/parallel-monitors.rspl) and
 [QueuePair](#concrete-specification-api) for parallel and series examples.
 A declaration containing only a monitor and its refinement is requested with `~transaction_view: #true`; it does not predict cycle outputs.

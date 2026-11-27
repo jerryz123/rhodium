@@ -45,6 +45,7 @@ spec for rtl.LoggedTwoTagROB:
 
   refinement:
     child rob: specs.TwoTagROB
+    forward_batch rob
     local (occupied): Bool
     local (tag): Bits(1)
     local (payload): Bits(2)

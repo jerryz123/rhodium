@@ -657,13 +657,14 @@ from sampled Reset to Bits(1) used by `reset_active()`. Keep the full-RTL
 replay separate: stall the first completed B=3, then raise ready. A valid-only
 recorder exposes B's commit one edge early.
 
-Keep that handwritten proof independent of the [declarative recorder proof](tests/logged-refinement.rkt).
-For a `child` cut, match both the expected view and the actual RTL definition
-at the named site, then prove equality of the entire forwarded batch on arbitrary
+Keep that handwritten proof independent of the [standalone recorder proof](../../examples/formal/prove-logged-two-tag-rob.rhm).
+The generic runner proves the named ROB child first. At the recorder cut, match both
+the expected view and the actual RTL definition. For a declared `forward_batch`,
+prove equality of the entire forwarded batch on arbitrary
 pins **before** applying child legality. Step only the sealed child's monitor.
 Bind its abstract pre/post histories separately from parent registers and
 check the parent relation at reset and at each admitted successor. The downstream
-readback test must use only the newly issued parent seal. A dropped grant
+[readback test](tests/logged-refinement.rkt) must use only the newly issued parent seal. A dropped grant
 generation must fail forwarding, whereas valid-only capture must fail preservation.
 Keep the public ordered-retirement monitor separate from the refinement binding.
 The ordinal observer uses only the parent seal, batch and abstract history. Run

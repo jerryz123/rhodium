@@ -82,8 +82,10 @@ treat a matching batch schema as proof that two monitors agree.
    its grant monitor is reusable by ArbitratedCapture. Keep the handwritten
    harnesses as differential oracles. For parents, drive the
    existing generic obligations from the spec's declared child views and
-   supplier roles. Reprove the wrapped stalled receipt and logged ROB without
-   a per-module issuer. Wrong occurrence, missing supplier, FIFO-only evidence
+   supplier roles. [LoggedTwoTagROB](../../examples/formal/prove-logged-two-tag-rob.rhm)
+   now proves its forwarded batch and recorder state using just the sealed ROB.
+   The wrapped stalled receipt still needs declarative supplier binding.
+   Wrong occurrence, missing supplier, FIFO-only evidence
    for stability, swapped bank and valid-only capture must still fail.
 4. **Prove reuse on an independent design.** Use the library
    [OfferRegister](../../flow/offer-register.rhdl), whose occupied word may be

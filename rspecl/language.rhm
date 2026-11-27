@@ -203,6 +203,8 @@ expr.macro 'refined_view($view, $attach, $parent): $line; ...':
   def checks = MutableMap{}
   def covers = MutableMap{}
   def cuts = MutableMap{}
+  def children = MutableSet{}
+  def mutable forwarded = []
   def mutable direct = #false
   def mutable sites = []
   /* Keep occurrence identity separate from lexical names and preserve declaration order for protocol checks. */
@@ -223,6 +225,12 @@ expr.macro 'refined_view($view, $attach, $parent): $line; ...':
         source(n, '($t ...)', prefix, sources, clause)
     | 'child $(child :: Identifier): $spec ...':
         occurrence(child, 'boundary.child_transaction($parent, $(field_name(child)), ($spec ...))', clause)
+        children.add(field_name(child))
+    | 'forward_batch $(child :: Identifier)':
+        def site = field_name(child)
+        unless site in children | syntax_meta.error("forward_batch must name a declared child", child)
+        when site in forwarded | syntax_meta.error("duplicate forwarded batch", child)
+        forwarded := forwarded ++ [site]
     | 'direct_wires $rhs ...':
         when direct | syntax_meta.error("duplicate direct wiring contract", clause)
         direct := Syntax.make_temp_id("direct_wires")
@@ -265,6 +273,12 @@ expr.macro 'refined_view($view, $attach, $parent): $line; ...':
     | 'assume $rest ...': syntax_meta.error("refinement predicates must be proved", clause)
     | ~else: emit(clause)
   let [site, ...] = sites
+  let [forward_site, ...] = forwarded
+  let [option, ...]:
+    cond
+    | forwarded.length() > 0: [direct || '#false', 'PairList[$forward_site, ...]']
+    | direct: [direct]
+    | ~else: []
   let [decl, ...] = declarations()
   'block:
      $decl
@@ -272,9 +286,7 @@ expr.macro 'refined_view($view, $attach, $parent): $line; ...':
      def state_inputs = $(map_expr(sources))
      def rel = ir.make_spec(state_inputs, {}, {}, $(map_expr(relations)), $(map_expr(invariants)), {})
      def edge = ir.make_spec(state_inputs ++ $(map_expr(pins)), {}, {}, $(map_expr(checks)), $(map_expr(covers)), {})
-     $(if direct
-       | '$attach($view, PairList[$site, ...], $(map_expr(cuts)), rel, edge, $direct)'
-       | '$attach($view, PairList[$site, ...], $(map_expr(cuts)), rel, edge)')'
+     $attach($view, PairList[$site, ...], $(map_expr(cuts)), rel, edge, $option, ...)'
 
 /* Compile a private abstraction at the cycle declaration's lexical site, not in the public monitor. */
 expr.macro 'cycle_relation($cycle): $line; ...':

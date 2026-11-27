@@ -1,26 +1,31 @@
 #lang rosette
-;; Issue reusable recorder evidence and exercise the public monitor without a second ROB proof.
+;; Exercise the runner-issued recorder seal, candidate RTL faults, and occurrence-bound evidence.
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require rackunit "composition-checks.rkt" "two-tag-rob-transactions.rkt"
          (only-in "composition-binding.rhm" logged_rob valid_only_logged_rob miswired_logged_rob renamed_logged_rob rob)
          (only-in "../../../examples/formal/logged-two-tag-rob.rspl" LoggedTwoTagROB)
          (only-in "../../../examples/formal/two-tag-rob.rspl" TwoTagROB)
+         (only-in "../../../rspecl/runner.rkt" prove-design)
          "../../../rspecl/proof.rkt" (only-in "../../../rspecl/rtl-boundary.rhm" transaction_parts)
          (only-in "../spec.rhm" spec_snapshot)
          (only-in "../spec-engine.rkt" fresh-fields symbolic-spec-state))
 (provide verified-logged-transactions verified-renamed-transactions)
 
 (define view (LoggedTwoTagROB logged_rob #:transaction_view #t))
-(define verified-logged-transactions (prove-transaction logged_rob view verified-rob-transactions))
+(define verified-logged-transactions (prove-design logged_rob LoggedTwoTagROB))
 
 (define verified-renamed-transactions
   (prove-transaction renamed_logged_rob view verified-rob-transactions #:child-site "engine"))
 
 (module+ test
+  ;; The mutants are distinct RTL families. Apply the good candidate plan without its parent
+  ;; seal: the runner must check the actual occurrence, forwarding and recorder state anew.
+  (define plan (LoggedTwoTagROB logged_rob #:proof_plan #t))
+  (define (candidate _top #:proof_plan _requested) plan)
   (test-case "renaming changes only the private occurrence binding"
     (check-exn #rx"transaction evidence does not match the RTL occurrence"
-               (lambda () (prove-transaction renamed_logged_rob view verified-rob-transactions)))
+               (lambda () (prove-design renamed_logged_rob candidate)))
     (check-true (transaction-for? verified-renamed-transactions renamed_logged_rob view))
     (check-false (transaction-for? verified-logged-transactions renamed_logged_rob view)))
   (test-case "parent seal is specific to this occurrence and this public contract"
@@ -35,10 +40,10 @@
                (lambda () (transaction-cut logged_rob "rob" verified-logged-transactions view))))
   (test-case "an offered but stalled retirement cannot advance the recorder"
     (check-exn #rx"step/successor not proved"
-               (lambda () (prove-transaction valid_only_logged_rob view verified-rob-transactions))))
+               (lambda () (prove-design valid_only_logged_rob candidate))))
   (test-case "dropping a forwarded generation fails wiring even with correct capture logic"
     (check-exn #rx"child-wiring/forwarded-batch not proved"
-               (lambda () (prove-transaction miswired_logged_rob view verified-rob-transactions))))
+               (lambda () (prove-design miswired_logged_rob candidate))))
   (test-case "two-edge consumer: read back a captured retirement using only the parent seal"
     (define-values (_ mon _i _o) (transaction_parts view))
     (define m (spec_snapshot mon))

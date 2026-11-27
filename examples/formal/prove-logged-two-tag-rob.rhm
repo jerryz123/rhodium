@@ -1,0 +1,13 @@
+#lang rhombus
+/* Proves that the recorder captures exactly the sealed ROB’s retirement handshakes. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rspecl/runner.rkt").prove_design
+  "logged-two-tag-rob.rhdl" as rtl
+  "logged-two-tag-rob.rspl" as spec
+
+module main:
+  def seal = prove_design(elaborate(rtl.LoggedTwoTagROB()).top, spec.LoggedTwoTagROB)
+  println("Proved LoggedTwoTagROB: reset clears has_commit, retirement captures tag and payload, stalls hold the record")

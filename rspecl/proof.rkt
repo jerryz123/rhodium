@@ -80,8 +80,8 @@
 (define (history-fields site state)
   (for/hash ([(k v) state]) (values (string-append "history." site "." k) v)))
 
-#| Sample and advance the sealed monitor on its actual pins. For legacy forwarding wrappers
-   verify the full re-export on arbitrary pins, before assuming any child verdict. |#
+#| Sample and advance the sealed monitor on its actual pins. For a forwarded batch,
+   verify its equality on arbitrary connected pins before assuming any child verdict. |#
 (define (sealed-site site expected child forward? [linked? #f])
   (check-view child expected #:at-cut? #t)
   (when (and (seal-requirement child) (not linked?))
@@ -237,11 +237,11 @@
      (prove-fifo-series-refinement view children)]
     [else
      (define premises (declared-premises top parent-spec))
-     (match-define (list sites cuts relation checks direct) (refinement_parts view top implementation-site))
+     (match-define (list sites cuts relation checks direct forwarded) (refinement_parts view top implementation-site))
      (define single? (= 1 (length sites)))
      (when (and implementation-site (not single?)) (error 'refinement "site override requires one child"))
      ;; The original single-seal calling convention asks for a forwarded batch proof.
-     ;; An occurrence map always uses the authored parent sampler, even for one site.
+     ;; With an occurrence map, forwarding is an explicit obligation on the named site.
      (define single-evidence? (and single? (not (hash? children))))
      (define evidence (if single-evidence? (hash (car sites) children) children))
      (unless (and (hash? evidence) (same-schema? (sort sites string<?) (sort (hash-keys evidence) string<?)))
@@ -257,7 +257,7 @@
          (define child (hash-ref evidence site))
          (values (or implementation-site site)
                  (if (string? cut) (fifo-monitor-site child cut (hash-ref (hash-ref relation "inputs") cut))
-                     (sealed-site site cut child single-evidence? (hash-has-key? links site))))))
+                     (sealed-site site cut child (or single-evidence? (member site forwarded)) (hash-has-key? links site))))))
      (certify-view top view
        (lambda (_model monitor layout _ins _outs sample-parent)
          (check-monitor-refinement! check-refinement-phase! top layout Bool bindings monitor sample-parent relation checks
