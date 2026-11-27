@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import "shift-queue-fixture.rhdl" as rtl
+import lib("examples/formal/queue-pair-series.rhdl") as series
 import lib("rspecl/fifo.rspl").fifo_monitor
 import lib("examples/formal/shift-queue.rspl").ShiftQueue
 import lib("examples/formal/queue-pair.rspl").QueuePair
@@ -18,8 +19,22 @@ def pair_wires = {"a.ingress.valid": "offer", "a.ingress.bits": "data", "ready":
 spec for rtl.FaultyQueuePair:
   events pair_events(reset)
 
-spec for rtl.QueuePairSeries:
+spec for rtl.WrongReadySeries:
   events pair_events(reset)
+
+// Same two children and same total capacity, but the middle handoff no longer preserves this history.
+fun reversed_series(top):
+  spec for series.QueuePairSeries:
+    events transfers = pair_events(reset)
+    transactions fifo_monitor(6, data.type.width, transfers)
+    refinement:
+      child front: QueuePair
+      child back: QueuePair
+      history upstream from front.q: Seq(data.type, 2)
+      history downstream from back.q: Seq(data.type, 4)
+      relate q = seq_concat(upstream, downstream)
+  QueuePairSeries(top, ~transaction_view: #true)
+export reversed_series
 
 // A well-typed but false claim: the environment's consume is not an ingress offer.
 fun crossed_pair(top):

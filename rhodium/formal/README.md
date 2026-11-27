@@ -26,7 +26,7 @@ words. This suffices to prove that the kth retirement matches the kth
 acceptance since reset. The contract supplies no cycle pins: it guarantees
 neither immediate admission nor eventual delivery. Pass `(grouped-pair-at depth)`
 to the [ordering observer](tests/queue-pair-transaction-order.rkt), which checks
-event batches with `fifo-allows?`. [QueuePairSeries](tests/queue-pair-series.rkt) connects
+event batches with `fifo-allows?`. [QueuePairSeries](../../examples/formal/queue-pair-series.rhdl) connects
 `QueuePair(1)` to `QueuePair(2)`. Their transaction contracts suffice to prove
 FIFO retirement and at most six pending words. The chain can refuse the next
 offer with just one word pending; its six-word bound is not a readiness guarantee.
@@ -171,6 +171,18 @@ slots to cycle state and declares when actual output pins matter; its
 checks the RTL handoff, and relates their independent public histories to a FIFO
 of capacity four. The result is reusable transaction evidence, not a promise
 about when `ready` will rise. No test harness or precomputed evidence is needed.
+
+To use two proved parents as children, run the [six-word example](../../examples/formal/prove-queue-pair-series.rhm):
+
+```sh
+PLTCOLLECTS="$PWD": tools/run-racket.sh examples/formal/prove-queue-pair-series.rhm
+```
+
+Its [series spec](../../examples/formal/queue-pair-series.rspl) checks the middle
+valid, data, and reverse-ready wires. It puts the downstream pair's pending words
+before the upstream pair's: an internal transfer moves a word between them
+without changing the combined sequence. The series proof does not inspect
+the ShiftQueue instances or registers inside either pair.
 
 Run the focused formal suite. It first probes Rosette and its solver under the
 persistent isolated build cache, then runs the Rhodium formal tests:
@@ -626,7 +638,7 @@ The view starts empty and holds its live history on any rejected batch. This
 helper describes behavior; only a successful refinement proof issues evidence.
 
 To obtain those batches from RTL pins, declare a passive view as the body of
-`spec for`, as in [QueuePair](../../examples/formal/queue-pair.rspl) and the [QueuePairSeries fixture](tests/queue-pair.rspl):
+`spec for`, as in [QueuePair](../../examples/formal/queue-pair.rspl) and [QueuePairSeries](../../examples/formal/queue-pair-series.rspl):
 
 ```rhombus
 spec for rtl.QueuePair:

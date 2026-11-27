@@ -9,6 +9,7 @@ import:
   "spec-dsl-fixture.rhdl" as rtl
   "shift-queue-fixture.rhdl" as pairs
   "queue-pair.rspl" as views
+  lib("examples/formal/queue-pair-series.rspl").QueuePairSeries
   "../fifo-view.rhm".sample_fifo_events
   "../fifo-monitor.rhm".step_fifo_monitor
   "../../../examples/formal/two-tag-rob.rspl" as rob_specs
@@ -230,7 +231,7 @@ check:
   step_fifo_monitor(pair_behavior, [0, 1], {"retired": 1}) ~is #false
 check:
   views.QueuePair(pair_top) ~throws "passive-only spec"
-  views.QueuePairSeries(pair_top, ~event_view: #true) ~throws "specialization of QueuePairSeries"
+  QueuePairSeries(pair_top, ~event_view: #true) ~throws "specialization of QueuePairSeries"
 check:
   block:
     spec for pairs.QueuePair:

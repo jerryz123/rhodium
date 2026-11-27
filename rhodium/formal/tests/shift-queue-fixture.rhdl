@@ -36,8 +36,8 @@ sync_circuit FaultyQueuePair(depth :: PosInt, _fault :: String):
   valid <== b.egress.valid
   head <== (if _fault == "mask" | b.mask | b.egress.bits)
 
-// A pure wire between two independently certified transaction endpoints.
-sync_circuit QueuePairSeries(~wrong_ready: _wrong_ready :: Boolean = #false):
+// The middle ready is incorrectly driven by the external consumer.
+sync_circuit WrongReadySeries():
   input offer: Bool
   input data: Bits(2)
   input consume: Bool
@@ -53,7 +53,7 @@ sync_circuit QueuePairSeries(~wrong_ready: _wrong_ready :: Boolean = #false):
 
   back.offer <== front.valid
   back.data <== front.head
-  front.consume <== (if _wrong_ready | consume | back.ready)
+  front.consume <== consume
 
   back.consume <== consume
   valid <== back.valid
@@ -77,4 +77,4 @@ sync_circuit InvertingParent():
   output inverted: Bool
   inverted <== !enable
 
-export InvertingParent GroupedProbe GuardedAssertion QueuePair FaultyQueuePair QueuePairSeries DiagnosticTap
+export InvertingParent GroupedProbe GuardedAssertion QueuePair FaultyQueuePair WrongReadySeries DiagnosticTap

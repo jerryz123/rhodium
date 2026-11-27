@@ -1,31 +1,54 @@
 #lang rosette
-;; Certifies the six-word series FIFO using only the two QueuePair event contracts.
+;; Compares the spec-authored six-word proof with the handwritten series oracle and replays real transfers.
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require rackunit
          (only-in "../refinement.rkt" compose-fifo-series fifo-transactions-for? fifo-transactions-capacity)
          (only-in "composition-binding.rhm" pair_series wrong_ready_series)
-         (only-in "queue-pair.rspl" QueuePairSeries)
+         (only-in "../../../examples/formal/queue-pair-series.rspl" QueuePairSeries)
+         (only-in "queue-pair.rspl" WrongReadySeries reversed_series)
          (only-in "queue-pair-grouped.rkt" grouped-pair-at)
          (only-in "queue-pair-transaction-order.rkt" check-retirement-order check-ready-not-entailed))
-(provide verified-queue-pair-series)
-
 (define series-view (QueuePairSeries pair_series #:event_view #t))
 (define front (grouped-pair-at 1))
 (define back (grouped-pair-at 2))
 (define (certify view a b) (compose-fifo-series view "front" a "back" b))
-(define verified-queue-pair-series (certify series-view front back))
+(define oracle-series (certify series-view front back))
 
 (module+ test
   (require (only-in "../refinement.rkt" fresh-fifo-history fifo-history-count fifo-history-slots fifo-events fifo-allows?)
+           (only-in "../../../rspecl/runner.rkt" prove-design)
+           (only-in "../../../rspecl/proof.rkt" prove-transaction transaction-for?)
+           (prefix-in observer: "fifo-observer-input.rkt")
+           (only-in "queue-pair-refinement.rkt" queue-pair-seal-at)
            (only-in "composition-checks.rkt" discharge require-feasible)
            (only-in racket/treelist treelist treelist->list)
            (only-in "../fifo-view.rhm" sample_fifo_events)
            (only-in "../fifo-monitor.rhm" fifo_monitor step_fifo_monitor))
 
+  (define public (QueuePairSeries pair_series #:transaction_view #t))
+  (test-case "the generic six-word seal proves the same ordinal theorem and does not promise ready"
+    (define seal (prove-design pair_series QueuePairSeries))
+    (check-true (transaction-for? seal pair_series public))
+    (define reader (observer:observe-fifo-seal seal pair_series public))
+    (check-equal? (observer:fifo-transactions-capacity reader) 6)
+    (require-feasible (check-retirement-order reader))
+    (check-ready-not-entailed reader))
+
+  (test-case "generic induction rejects the miswire, exchanged seals, and upstream-first history"
+    (define small (queue-pair-seal-at 1))
+    (define large (queue-pair-seal-at 2))
+    (define children (hash "front" small "back" large))
+    (check-exn #rx"expected front[.]consume driven by back[.]ready, got consume"
+               (lambda () (prove-transaction wrong_ready_series public children)))
+    (check-exn #rx"expected certified evidence for this transaction view"
+               (lambda () (prove-transaction pair_series public (hash "front" large "back" small))))
+    (check-exn #rx"step/(allowed|retire-oldest|successor) not proved"
+               (lambda () (prove-transaction pair_series (reversed_series pair_series) children))))
+
   ;; Independent arithmetic relation from before the executable monitor. Quantify over
   ;; arbitrary counts and slot padding, not just well-formed, reachable concrete states.
-  (for ([cert (list front back verified-queue-pair-series)] [capacity '(2 4 6)])
+  (for ([cert (list front back oracle-series)] [capacity '(2 4 6)])
     (test-case (format "executable FIFO agrees in both directions at capacity ~a" capacity)
       (define old (fresh-fifo-history cert))
       (define next (fresh-fifo-history cert))
@@ -46,15 +69,15 @@
       (discharge 'monitor-equivalence #t
                  (equal? expected (fifo-allows? cert old (fifo-events reset push in pop out) next)))))
 
-  (test-case "series evidence binds the actual parent and suffices for the unchanged ordering observer"
-    (check-true (fifo-transactions-for? verified-queue-pair-series series-view))
-    (check-equal? (fifo-transactions-capacity verified-queue-pair-series) 6)
-    (require-feasible (check-retirement-order verified-queue-pair-series))
-    (check-ready-not-entailed verified-queue-pair-series))
+  (test-case "handwritten series oracle binds the actual parent and passes the unchanged ordering observer"
+    (check-true (fifo-transactions-for? oracle-series series-view))
+    (check-equal? (fifo-transactions-capacity oracle-series) 6)
+    (require-feasible (check-retirement-order oracle-series))
+    (check-ready-not-entailed oracle-series))
 
   (test-case "an independent ready driver breaks the handoff, and same-shaped children are not interchangeable"
     (check-exn #rx"expected front.consume driven by back.ready, got consume"
-               (lambda () (certify (QueuePairSeries wrong_ready_series #:event_view #t) front back)))
+               (lambda () (certify (WrongReadySeries wrong_ready_series #:event_view #t) front back)))
     (check-exn #rx"evidence does not match the RTL occurrences"
                (lambda () (certify series-view back front))))
 

@@ -12,7 +12,8 @@ import:
   "../wiring.rhm".leaf_layout
   "shift-queue-fixture.rhdl".QueuePair
   "shift-queue-fixture.rhdl".FaultyQueuePair
-  "shift-queue-fixture.rhdl".QueuePairSeries
+  "shift-queue-fixture.rhdl".WrongReadySeries
+  lib("examples/formal/queue-pair-series.rhdl").QueuePairSeries
   lib("examples/formal/arbiter-queue.rhdl").ArbiterQueue
   lib("examples/formal/buffered-arbiter-queue.rhdl").BufferedArbiterQueue
   lib("examples/formal/gated-arbiter-queue.rhdl").GatedArbiterQueue
@@ -123,7 +124,7 @@ fun inventory():
     for (fault in (if d == 1 | ["ready", "payload"] | ["ready", "payload", "mask"])):
       faulty_pairs[[fault, d]] := materialize_circuit(FaultyQueuePair(d, fault))
   pair_series := materialize_circuit(QueuePairSeries())
-  wrong_ready_series := materialize_circuit(QueuePairSeries(~wrong_ready: #true))
+  wrong_ready_series := materialize_circuit(WrongReadySeries())
   for (cross_payload in [#true, #false]):
     faulty_buffered_tops[cross_payload] := materialize_circuit(FaultyBuffered(~cross_payload: cross_payload))
   for (d in proof_depths):

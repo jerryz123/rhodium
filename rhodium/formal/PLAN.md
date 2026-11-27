@@ -33,7 +33,7 @@ procedure, evidence type, or knowledge of a grandchild to obtain a proof.
 | Finding in the current implementation | Destination |
 |---|---|
 | [FIFO behavior](fifo-monitor.rhm) builds a bounded sequence monitor by hand. The [view binder](fifo-view.rhm) recognizes that exact monitor; the [language](../../rspecl/language.rhm) treats the combination of events and transactions as FIFO-specific. | A parameterized, importable `.rspl` monitor and pin-sampling helpers. The owning spec chooses them explicitly. No FIFO opcode, reserved history name, or second spec for the same module. |
-| [Series and wrapper issuers](refinement.rkt) know about FIFO evidence, upstream/downstream order, and transfer transport. [QueuePair](../../examples/formal/queue-pair.rspl) already declares the concatenation; QueuePairSeries still relies on the handwritten series rule. | The parent's private `refinement:` names child occurrences, projects their public histories, and declares the handoff to check. Ordinary monitor induction or exact forwarding issues the result. Keep physical wiring checks; do not replace them with an assumed internal event. |
+| [Series and wrapper issuers](refinement.rkt) know about FIFO evidence, upstream/downstream order, and transfer transport. [QueuePair](../../examples/formal/queue-pair.rspl) and [QueuePairSeries](../../examples/formal/queue-pair-series.rspl) express these facts in RSPECL; other consumers still use specialized issuers. | The parent's private `refinement:` names child occurrences, projects their public histories, and declares the handoff to check. Ordinary monitor induction or exact forwarding issues the result. Keep physical wiring checks; do not replace them with an assumed internal event. |
 | [ShiftQueue](../../examples/formal/shift-queue.rspl) owns both its RTL-to-cycle and cycle-to-monitor relations. Its [handwritten oracle](tests/shift-queue-induction.rkt) is independent. | Use this split when porting other leaves: register encodings and physical observation rules belong in checked spec hints, not the runner. Keep coverage, fault injection and replay in tests. |
 | [TwoTagROB](../../examples/formal/two-tag-rob.rspl) already owns its generation, ownership and payload invariants; the [logged parent](../../examples/formal/logged-two-tag-rob.rspl) consumes public history. The ROB still imports its tag order via the privileged FIFO cut. The [stall harness](tests/stalled-offer.rkt) still selects the supplier and forwarding strategy. | Keep the existing ROB semantics in RSPECL. Replace the FIFO cut with an ordinary typed child history, proving any tag conversion on live entries. Move wiring roles and required/provided view choices into private spec declarations; the caller supplies seals, not a proof script. |
 
@@ -59,8 +59,9 @@ treat a matching batch schema as proof that two monitors agree.
    unmigrated parents still obtain independently proved legacy evidence.
    QueuePair(1) and QueuePair(2) now prove their two- and four-word bounds
    from generic ShiftQueue seals using `child`, `history`, and `relate`. Their
-   `direct_wires` obligation also checks a non-FIFO parallel cut. Next use
-   the two parent seals to migrate QueuePairSeries, then the arbiter/ROB consumers. Preserve the
+   `direct_wires` obligation also checks a non-FIFO parallel cut. QueuePairSeries
+   reuses the two generic parent seals for the six-word contract. Next migrate
+   the arbiter/ROB consumers. Preserve the
    two-lane exclusivity obligation; it is not an environment assumption.
    Keep the ordering observer's theorem unchanged, the 2/4/6-word bounds,
    fill/drain replay, and the crossed-ready, wrong-payload, reversed-history
@@ -112,7 +113,7 @@ It now exports a run-local FIFO transaction contract. An
 [event-only consumer](tests/queue-pair-transaction-order.rkt) proves retirement
 order from that contract without stepping the children. This result cannot
 drive cycle pins or require admission whenever space remains.
-The [series parent](tests/queue-pair-series.rkt) now composes two such theorems
+The [series parent](../../examples/formal/queue-pair-series.rspl) now composes two such theorems
 across a checked RTL handoff and exports a six-word FIFO bound and ordering.
 The [executable event monitor](fifo-monitor.rhm) now gives rspecsim and Rosette
 one transaction model: equivalence to the original relation is checked at

@@ -1,0 +1,30 @@
+#lang rhodium
+/* Connects a two-word QueuePair to a four-word QueuePair through a single handoff. */
+// SPDX-License-Identifier: Apache-2.0
+
+import "queue-pair.rhdl".QueuePair
+
+/* Front accepts external offers; back supplies retirements and controls the internal handoff. */
+sync_circuit QueuePairSeries():
+  input offer: Bool
+  input data: Bits(2)
+  input consume: Bool
+  output ready: Bool
+  output valid: Bool
+  output head: Bits(2)
+
+  inst front(QueuePair(1))
+  inst back(QueuePair(2))
+  front.offer <== offer
+  front.data <== data
+  ready <== front.ready
+
+  back.offer <== front.valid
+  back.data <== front.head
+  front.consume <== back.ready
+
+  back.consume <== consume
+  valid <== back.valid
+  head <== back.head
+
+export QueuePairSeries

@@ -1,0 +1,14 @@
+#lang rhombus
+/* Proves QueuePairSeries implements a six-word FIFO from the two QueuePair contracts. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rspecl/runner.rkt").prove_design
+  "queue-pair-series.rhdl" as rtl
+  "queue-pair-series.rspl" as spec
+
+module main:
+  def top = elaborate(rtl.QueuePairSeries()).top
+  def seal = prove_design(top, spec.QueuePairSeries)
+  println("Proved QueuePairSeries from QueuePair(1) and QueuePair(2): ordered FIFO contract, capacity 6")

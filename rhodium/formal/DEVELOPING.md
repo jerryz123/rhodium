@@ -359,9 +359,13 @@ most one transfer outside reset; it does not prohibit simultaneous offers.
 It ranges over all successors allowed by both child relations, without using
 any cycle timing guarantee. It proves the joint external FIFO rule on the downstream
 pending words followed by the upstream words; only the internal transfer is hidden.
-The [series regression](tests/queue-pair-series.rkt) composes the two grouped-proof
-results again and feeds the resulting six-word contract to the original ordering
-observer. Its separate full-RTL replay runs the same declared parent sampler in
+The [QueuePairSeries spec](../../examples/formal/queue-pair-series.rspl) uses the
+generic runner: its only child evidence is from the two actual QueuePair
+specializations. The [standalone proof](../../examples/formal/prove-queue-pair-series.rhm)
+does not import the handwritten issuer's test harness. The [series regression](tests/queue-pair-series.rkt)
+keeps that oracle and feeds both six-word results to the same ordinal observer.
+It checks exchanged seals, the wrong ready driver, and an upstream-first relation.
+Its separate full-RTL replay runs the same declared parent sampler in
 rspecsim and sends the resulting
 batches to the concrete monitor, including refusal on
 the second offer and a six-word fill/drain. Corrupting the first retirement

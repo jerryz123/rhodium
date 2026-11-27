@@ -1,0 +1,20 @@
+#lang rspecl
+/* Relates a six-word FIFO to the public histories of two directly connected QueuePairs. */
+// SPDX-License-Identifier: Apache-2.0
+
+import "queue-pair-series.rhdl" as rtl
+import "queue-pair.rspl".QueuePair
+import lib("rspecl/fifo.rspl").fifo_monitor
+
+spec for rtl.QueuePairSeries:
+  events transfers = ready_valid_events(reset, rv_pins("offer", "ready", "data"), rv_pins("valid", "consume", "head"))
+  transactions fifo_monitor(6, data.type.width, transfers)
+  refinement:
+    child front: QueuePair
+    child back: QueuePair
+    direct_wires {"front.offer": "offer", "front.data": "data", "ready": "front.ready",
+                  "back.offer": "front.valid", "back.data": "front.head", "front.consume": "back.ready",
+                  "back.consume": "consume", "valid": "back.valid", "head": "back.head"}
+    history upstream from front.q: Seq(data.type, 2)
+    history downstream from back.q: Seq(data.type, 4)
+    relate q = seq_concat(downstream, upstream)
