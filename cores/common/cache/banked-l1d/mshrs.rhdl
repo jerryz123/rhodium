@@ -250,7 +250,7 @@ sync_circuit L1DMSHRs(count :: Int.in(2 ..= 2047), width :: PosInt, ways :: PosI
   def drain = buffered & released & !discarded & next_packet.valid & packet_ready & !writes.any()
 
   def snoop_updates = snoop_update |> fork_valid(count)
-  for (i in 0..count):
+  def slot_packets :: Array.later_of(Endpoint) = for Array (i in 0..count):
     inst slot(L1DMissSlot(i, count, width, ways, config))
     def id = Bits(index_width(count))(i)
     def staged = buffered & (buffer_slot === id)
@@ -295,6 +295,7 @@ sync_circuit L1DMSHRs(count :: Int.in(2 ..= 2047), width :: PosInt, ways :: PosI
       |> map_flow(r => r.updated(~context: r.context.updated(~install: install)))
       |> results.ingress[i]
     finished[i] <== staged & slot.completion.fire()
+    slot.packet
 
   def buffer_target = targets[buffer_slot]
   def drop = probe.valid & (probe.bits.align_down(CacheLineBytes) === buffer_target.address)
@@ -308,8 +309,15 @@ sync_circuit L1DMSHRs(count :: Int.in(2 ..= 2047), width :: PosInt, ways :: PosI
     when (done[buffer_slot]): released <== Bool(#true)
     when drop: discarded <== Bool(#true)
 
-  def incoming = chunks[buffer_slot]
   def arrival = buffered_write.any()
+  def writer = priority_encoder_oh(writes)
+  // Observe the single DAT acceptance without putting an extra wide mux on
+  // either the direct install path or the staged packet write port.
+  def accepted = inject_interface(Valid(Bool), ~valid: writer.valid ||| arrival, ~bits: arrival)
+  describe_interface_selection(for List (i in 0..count): writes[i] ||| buffered_write[i])
+  describe_interface_contract(slot_packets, accepted, "packet-source", ~trace_model: interface_trace_selection())
+  def Array(direct, staged_input) = accepted |> fork_valid(2)
+  def incoming = chunks[buffer_slot]
   when arrival: payload[incoming.index] <== incoming.data
   when reserve:
     present <== Bits(packets)(0)
@@ -319,13 +327,25 @@ sync_circuit L1DMSHRs(count :: Int.in(2 ..= 2047), width :: PosInt, ways :: PosI
 
   protect <== metadata_pending.any()
   install_pending <== installing.any()
-  def writer = priority_encoder_oh(writes)
   packet.valid <== writer.valid ||| drain
   def staged_packet = CacheLineChunk(p.data_bytes):
     index: next_packet.index
     data: payload[next_packet.index]
-  packet.bits <== mux(drain, staged_packet, chunks[writer.index])
+  def staged_output = inject_interface(Valid(CacheLineChunk(p.data_bytes)), ~valid: drain, ~bits: staged_packet)
+  packet.bits <== mux(drain, staged_output.bits, chunks[writer.index])
   packet_target <== targets[mux(drain, buffer_slot, writer.index)]
+  // Staged packets may drain in a different order than DAT arrival. Use
+  // the same DataID-indexed ownership and discard rules as the payload bank.
+  describe_interface_retained_bank(
+    for List (i in 0..packets): arrival & (incoming.index === Bits(index_width(packets))(i)),
+    for List (i in 0..packets): present.as_vec(Bool)[i] & (reserve ||| (drain & next_packet[i])),
+    for List (i in 0..packets): present.as_vec(Bool)[i],
+    ~grants: [for List (i in 0..packets): drain & next_packet[i]],
+    ~name: "staged-packets"
+  )
+  describe_interface_contract(staged_input, staged_output, "staged-packets", ~trace_model: interface_trace_retained_bank(~name: "staged-packets"))
+  describe_interface_selection([writer.valid, drain], ~name: "install-source")
+  describe_interface_contract(Array(direct, staged_output), packet, "install-source", ~trace_model: interface_trace_selection(~name: "install-source"))
 
 export:
   L1DLineState

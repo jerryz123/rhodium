@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "wide-l1d-contract.hpp"
+#include "test-sites.h"
+#include "../../../../../rheg/runtime/rheg.h"
 
 void retry_response(unsigned opcode, unsigned txn, unsigned credit) {
   auto &r = chi_in.presponses;
@@ -55,6 +57,16 @@ void check_overlapping_loads(const Line &a, const Line &b, bool reverse) {
   if (reverse) for (unsigned i = 0; i < 4; ++i) response(a[i], 0x10+i);
   response(b[1], 0x20); response(b[3], 0x21);
   eval(); CHECK(core_out.pdrained && !chi_out.prequests.pvalid);
+  const auto &graph = rheg::graph();
+  std::set<unsigned> rows;
+  for (const auto &[parent, child] : graph.edges) {
+    if (child.site != FillSite) continue;
+    const auto row = graph.field(child, "index").unsigned_value();
+    CHECK(row < 4 || (row >= 8 && row < 12));
+    CHECK(rows.insert(row).second);
+    CHECK(graph.field(parent, "address").unsigned_value() == (row < 4 ? base : other));
+  }
+  CHECK(rows.size() == 8);
 }
 
 void check_demand_window(const Line &a, Line b) {
@@ -149,6 +161,24 @@ void check_refill_forwarding(Line a, bool probe) {
   if (probe) response(scalar, 2);
   response(a[2], 3);
   eval(); CHECK(core_out.pdrained && !core_out.presponse.pvalid);
+  const auto &graph = rheg::graph();
+  unsigned replies = 0;
+  for (const auto &[ref, node] : graph.nodes) {
+    if (ref.site != ReplySite) continue;
+    const auto ctx = graph.field(ref, "context").unsigned_value();
+    CHECK(ctx == ++replies);
+    const bool forwarded = ctx == 1 || (ctx == 2 && !probe);
+    unsigned parents = 0;
+    for (const auto &[parent, child] : graph.edges) {
+      if (child.site != ref.site || child.sequence != ref.sequence) continue;
+      ++parents;
+      CHECK(parent.site == (forwarded ? FillSite : ResolveSite));
+      if (forwarded) CHECK(graph.field(parent, "index").unsigned_value() == ctx - 1);
+      else CHECK(graph.field(parent, "address").unsigned_value() == base + (ctx == 2 ? 20 : 32));
+    }
+    CHECK(parents == 1);
+  }
+  CHECK(replies == 3);
 }
 
 void check_full_forward_responses(const Line &a, const Line &b) {
@@ -550,6 +580,7 @@ static void check_victim_refill(const Line& a, const Line& b, int first_row) {
 }
 
 int main() {
+  rheg::graph().bind_manifest(rheg_generated::manifest());
   return run_wide_l1d([](const Line& a, const Line& b) {
     reset = 1; tick_model(); reset = 0;
     for (bool reverse : {true, false}) {

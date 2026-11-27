@@ -939,7 +939,9 @@ sync_circuit BankedL1DCache(xlen :: XLen,
 
   def s4_load_hit = s4_local.valid & s4_load & s4_hit & (!s4_lr ||| s4_state.is_unique())
   def s4_failed_sc = s4_local.valid & s4_sc & !s4_sc_authorized
-  def produces_response = maintenance_complete ||| s4_load_hit ||| store_hit_write ||| local_mutation_complete ||| s4_failed_sc ||| forward_row ||| (complete_refill & !miss_prefetch & !miss_replied)
+  def immediate_response = s4_load_hit ||| store_hit_write ||| s4_failed_sc
+  def refill_response = complete_refill & !miss_prefetch & !miss_replied
+  def produces_response = maintenance_complete ||| immediate_response ||| local_mutation_complete ||| forward_row ||| refill_response
   def response_data = priority_mux(~default: Bits(beat_width)(0)):
     maintenance_complete: Bits(beat_width)(0)
     mux(forward_waiter, is_raw_beat(waiter), retained_raw_beat) & (s4_access === CacheOperation.Load): load_row
@@ -951,7 +953,8 @@ sync_circuit BankedL1DCache(xlen :: XLen,
     data: response_data
     context: mux(forward_waiter, waiter.context, retained_request.context)
 
-  inject_interface(Valid(PhysicalMemoryBeatResp(xlen, Context, beat_bytes)), ~valid: produces_response, ~bits: response) |> to_decoupled() |> service_responses.ingress
+  def reply = inject_interface(Valid(PhysicalMemoryBeatResp(xlen, Context, beat_bytes)), ~valid: produces_response, ~bits: response)
+  reply |> to_decoupled() |> service_responses.ingress
   when produces_response:
     assert(service_responses.ingress.ready, "l1d_slow_response_capacity")
 
@@ -1139,10 +1142,21 @@ sync_circuit BankedL1DCache(xlen :: XLen,
     write: Bool(#true)
     data: vec(for List (lane in 0..data_lanes): fill_bytes[lane % beat_bytes])
     mask: refill_lane_mask
-  (inject_interface(Valid(DataRequest), ~valid: refill_install_word, ~bits: refill_write)
-    |> trace_valid_event("dcache/refill.data", ~fields: request):
-         index: request.address
-  ) |> arrays.fill.request
+  def fill = inject_interface(Valid(DataRequest), ~valid: refill_install_word, ~bits: refill_write)
+  def installed = fill |> trace_valid_event("dcache/refill.data", ~fields: request):
+    index: request.address
+  def Array(array_write, forwarded) = installed |> fork_valid(2)
+  array_write |> arrays.fill.request
+
+  // The install port can write an unrelated row on any reply cycle. Select
+  // it as a parent only when its bytes actually bypass to the leader or waiter.
+  def Array(immediate, mutation_start) = s4_local |> fork_valid(2)
+  def mutation_done = inject_interface(Valid(Bool), ~valid: local_mutation_complete, ~bits: pending_zero)
+  describe_interface_retained_storage(local_mutation_capture, local_mutation_complete, pending_mutation_valid, ~name: "mutation")
+  describe_interface_contract(mutation_start, mutation_done, "mutation", ~trace_model: interface_trace_retained(~name: "mutation"))
+  describe_interface_selection([maintenance_complete, immediate_response, local_mutation_complete, forward_row, refill_response], ~name: "service-reply")
+  describe_interface_contract(Array(maintenance_done, immediate, mutation_done, forwarded, misses.complete), reply,
+                              "service-reply", ~trace_model: interface_trace_selection(~name: "service-reply"))
 
   assert(!(store_drain & (array_data_read ||| cache_write ||| gather_issue)), "l1d_store_drain_data_port_exclusive")
   assert(!(store_state_write & (array_lookup_issue ||| install_refill ||| local_mutation_commit ||| snoop_lookup_start ||| update_snoop_state)), "l1d_store_drain_state_port_exclusive")
@@ -1238,6 +1252,10 @@ sync_circuit BankedL1DCache(xlen :: XLen,
 
   def packet = misses.packet
   def install_packet = packet.valid & misses.packet_target.install
+  // An accepted packet owns all its row installs. On last-row replacement
+  // the current write still belongs to the old packet, not the incoming one.
+  describe_interface_retained_storage(install_packet, refill_install_word & refill_packet_last, refill_packet_live, ~name: "install-packet")
+  describe_interface_contract(packet, fill, "install-packet", ~trace_model: interface_trace_retained(~name: "install-packet"))
   def packet_rows = packet.bits.data.as_vec(Bits(beat_width))
   def target_offset = if rows_per_packet == 1 | Bits(1)(0) | refill_word_index[0..packet_offset_bits]
   when capture_s4:

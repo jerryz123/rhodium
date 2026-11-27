@@ -208,7 +208,7 @@ sync_circuit CacheLineRefill(Context :: DataType,
   control.finish <== completion_fire
   control.external_progress <== data_fire
   describe_interface_retained_storage(command_fire, completion_fire, control.active)
-  describe_interface_contract(acquiring, control.attempt, "transaction-attempts", ~trace_model: interface_trace_retained())
+  describe_interface_contract(acquiring, Array(control.attempt, packet_write, completion), "refill-outputs", ~trace_model: interface_trace_retained(~outputs: 3))
   // The packet completing the line owns CompAck until its accepted transfer.
   describe_interface_retained_storage(data_fire & next_received_packets.all(), acknowledgement_fire, acknowledgements.valid, ~name: "compack")
   describe_interface_contract(response_data, acknowledgements, "line-acknowledgement", ~trace_model: interface_trace_retained(~name: "compack"))

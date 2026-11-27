@@ -8,6 +8,12 @@ import:
   "../../../chi-hart.rhdl" open
   lib("riscv/rtl/pma.rhdl") open
   lib("rhodium/std/interconnect.rhdl").AddressSet
+  lib("flow/main.rhdl") open
+  lib("chi/protocol/channels.rhdl").CHIRNChannels
+  "../../protocol.rhdl" open
+  "../../../cache-prefetch.rhdl".CachePrefetchReq
+  lib("rhodium/event/tests/rsim/trace-sites.rhm").traced_target
+  lib("rhodium/event/main.rhm").EventInstrumentationConfig
 
 def rom = RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true, ~instruction_cacheable: #true)
 def config = RiscvHartCHIConfig(test_cache_flit, 64, test_cache_uncached_config.regions ++ [
@@ -15,8 +21,43 @@ def config = RiscvHartCHIConfig(test_cache_flit, 64, test_cache_uncached_config.
   RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x400001000, 0xff), rom), test_cache_uncached_home)
 ])
 
-def program = elaborate(BankedL1DCache(XLen.X64, CacheConfig(4, 2), ~chi: config, ~context: Bits(8), ~beat_bytes: 16, ~mshr_count: 2))
+sync_circuit TracedBankedL1D():
+  def xlen = XLen.X64
+  input node_id: Bits(test_cache_flit.node_id_width)
+  interface core(CacheAccess(xlen, Bits(8), 16), ~role: responder)
+  interface virtual_lookup(Valid(Bits(64)), ~role: consumer)
+  interface pipeline_lookup(Valid(CachePipelineBeatReq(xlen, 16)), ~role: consumer)
+  interface pipeline(CachePipelineAccess(xlen, 16), ~role: responder)
+  interface prefetch(Valid(CachePrefetchReq(64)), ~role: consumer)
+  interface chi(CHIRNChannels(test_cache_flit), ~role: node)
+  inst cache(BankedL1DCache(xlen, CacheConfig(4, 2), ~chi: config, ~context: Bits(8), ~beat_bytes: 16))
+  cache.node_id <== node_id
+  virtual_lookup |> cache.virtual_lookup
+  pipeline_lookup |> cache.pipeline_lookup
+  pipeline <=> cache.pipeline
+  prefetch |> cache.prefetch
+  cache.chi <=> chi
+  core.request |> cache.core.request
+  core.request_fault <== cache.core.request_fault
+  core.request_access_fault <== cache.core.request_access_fault
+  core.drained <== cache.core.drained
+  core.reservation_valid <== cache.core.reservation_valid
+  (cache.core.response |> trace_event("test/reply", ~fields: r):
+     context: r.context
+  ) |> core.response
+
+def program = elaborate(TracedBankedL1D())
+fun site_header(manifest):
+  def constants = for List (site in manifest.sites, i in 0..manifest.sites.length()):
+    match site.label
+    | "test/reply": "constexpr unsigned ReplySite = " ++ to_string(i) ++ ";\n"
+    | "dcache/refill.data": "constexpr unsigned FillSite = " ++ to_string(i) ++ ";\n"
+    | "dcache/s4.resolve": "constexpr unsigned ResolveSite = " ++ to_string(i) ++ ";\n"
+    | ~else: ""
+  String.join(constants, "")
+def target = traced_target(site_header, EventInstrumentationConfig(~partial: #true))
 def rv32 = elaborate(BankedL1DCache(XLen.X32, CacheConfig(2, 1), ~chi: config, ~context: Bits(8), ~beat_bytes: 8))
 export:
   program
+  target
   rv32

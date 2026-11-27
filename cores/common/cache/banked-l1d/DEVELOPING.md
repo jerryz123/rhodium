@@ -60,6 +60,12 @@ row of the active ordered load miss: enqueue the leader's response first, then
 only forward to a classified ordinary load at the FIFO head matching the line
 and row. A matching probe disables further forwarding for that miss. Never
 hold installation or CompAck for a forwarded response or publish a partial tag.
+Trace the selected **response producer**, not every concurrent array access.
+A forwarded leader or waiter inherits the particular `dcache/refill.data` row;
+a replay that reads SRAM inherits `dcache/s4.resolve` instead. Keep that
+reference with the response FIFO entry during backpressure. The VLSU separately
+joins its ordered request metadata, so a merged waiter retains its own AGEN
+event even when its bytes come from another request's line acquisition.
 After the ordered miss releases its context, replay ordinary loads and stores
 at the head of the classified prefix only in unreserved sets. Recheck the hit
 in S3; a store needs unique permission. In S4, installation has priority over
