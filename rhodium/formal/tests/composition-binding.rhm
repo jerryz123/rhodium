@@ -122,7 +122,7 @@ fun inventory():
     pairs[d] := materialize_circuit(QueuePair(d))
   for (d in [1, 2]):
     // The mask-as-payload fault is type-correct only at depth two.
-    for (fault in (if d == 1 | ["ready", "payload"] | ["ready", "payload", "mask"])):
+    for (fault in (if d == 1 | ["ready", "payload"] | ["ready", "payload", "mask", "valid-gated"])):
       faulty_pairs[[fault, d]] := materialize_circuit(FaultyQueuePair(d, fault))
   pair_series := materialize_circuit(QueuePairSeries())
   wrong_ready_series := materialize_circuit(WrongReadySeries())

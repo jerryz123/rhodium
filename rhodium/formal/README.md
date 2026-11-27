@@ -700,7 +700,6 @@ spec for rtl.QueuePair:
   events transfers = pair_events(reset)
   transactions fifo_monitor(2 * depth, data.type.width, transfers)
   refinement:
-    direct_wires pair_wires
     child a: ShiftQueue
     child b: ShiftQueue
     history upstream from a.q: Seq(data.type, depth)
@@ -726,11 +725,12 @@ drive them, certify the FIFO, or replace a cycle model.
 
 Here `fifo_monitor` (from [rspecl/fifo.rspl](../../rspecl/fifo.rspl)) is the public
 promise: ordered two-bit words with at most twice the child depth outstanding
-in each reset epoch. Only the private refinement names occurrences.
-`direct_wires` is a complete map from data/control sinks to expected RTL
-drivers, including the parent boundary. The checker verifies shared clock and
-reset separately; intervening logic is not a direct wire. `seq_concat`
-joins the independent child histories downstream-first, ignoring unused slots.
+in each reset epoch. Only the private refinement names occurrences. The runner
+follows the elaborated RTL connections and checks shared clock and reset;
+the spec does not repeat the handoff. `seq_concat` joins the independent child
+histories downstream-first, ignoring unused slots. If exact topology is itself
+a requirement, an optional `direct_wires` map additionally checks every
+data/control sink against its named driver and rules out intervening logic.
 The generic proof certifies a two-word bound at depth one and a four-word
 bound at depth two. Neither contract promises ready whenever space remains.
 

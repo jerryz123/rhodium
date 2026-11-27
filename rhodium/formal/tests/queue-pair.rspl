@@ -11,11 +11,6 @@ export QueuePair
 fun pair_events(reset):
   ready_valid_events(reset, rv_pins("offer", "ready", "data"), rv_pins("valid", "consume", "head"))
 
-// Expected physical drivers; no transfer verdict, state, or equality assumption enters this map.
-def pair_wires = {"a.ingress.valid": "offer", "a.ingress.bits": "data", "ready": "a.ingress.ready",
-                  "b.ingress.valid": "a.egress.valid", "b.ingress.bits": "a.egress.bits", "a.egress.ready": "b.ingress.ready",
-                  "valid": "b.egress.valid", "head": "b.egress.bits", "b.egress.ready": "consume"}
-
 spec for rtl.FaultyQueuePair:
   events pair_events(reset)
 
@@ -49,7 +44,6 @@ fun reversed_pair(top):
     events transfers = pair_events(reset)
     transactions fifo_monitor(2 * depth, data.type.width, transfers)
     refinement:
-      direct_wires pair_wires
       child a: ShiftQueue
       child b: ShiftQueue
       history upstream from a.q: Seq(data.type, depth)

@@ -10,17 +10,12 @@ import lib("rspecl/fifo.rspl").fifo_monitor
 fun pair_events(reset :: SpecExpr):
   ready_valid_events(reset, rv_pins("offer", "ready", "data"), rv_pins("valid", "consume", "head"))
 
-def pair_wires = {"a.ingress.valid": "offer", "a.ingress.bits": "data", "ready": "a.ingress.ready",
-                  "b.ingress.valid": "a.egress.valid", "b.ingress.bits": "a.egress.bits", "a.egress.ready": "b.ingress.ready",
-                  "valid": "b.egress.valid", "head": "b.egress.bits", "b.egress.ready": "consume"}
-
 spec for rtl.QueuePair:
   events transfers = pair_events(reset)
   // Count accepted words until they leave. The capacity bound does not require ready to be high whenever space remains.
   transactions fifo_monitor(2 * depth, data.type.width, transfers)
   refinement:
-    // Check the actual RTL handoff: a sends valid and data to b, and b sends ready back to a.
-    direct_wires pair_wires
+    // The runner follows the RTL wiring between these children; only their FIFO histories are public.
     child a: ShiftQueue
     child b: ShiftQueue
     history upstream from a.q: Seq(data.type, depth)

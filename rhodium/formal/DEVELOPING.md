@@ -322,9 +322,12 @@ outside tests. The [regression harness](tests/queue-pair-refinement.rkt) exercis
 depths one and two alongside the [handwritten series oracle](tests/queue-pair-grouped.rkt).
 At each depth the runner uses the
 matching ShiftQueue seal twice, specializing the expected child view at each
-actual RTL occurrence. Both proofs use independent child histories. At depth
-two, the mask is the same width as the payload: driving `head` from `b.mask`
-must fail the wire check, not a width check.
+actual RTL occurrence. Both proofs use independent child histories. QueuePair
+uses the extracted RTL graph without asserting exact drivers. Keep the ready
+and payload mutants as failed induction obligations, and the valid-gated ready
+variant as a passing transfer-preserving change. At depth two, the mask is the
+same width as the payload: driving `head` from `b.mask` must fail because the
+child contract does not expose that output, not because of a width mismatch.
 For an authored `direct_wires` map, the wiring extractor must reject local
 logic, compare every sink to its actual driver, and check shared clock/reset
 before using the child evidence in parent induction. Recheck on the proof's top even if

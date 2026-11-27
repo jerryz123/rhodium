@@ -15,7 +15,7 @@ sync_circuit GuardedAssertion():
   when enabled:
     assert(condition, "sampled")
 
-// Isolate the three same-width miswirings from the correct example's RTL family.
+// Three same-width miswirings and a transfer-preserving control, separate from the example RTL.
 sync_circuit FaultyQueuePair(depth :: PosInt, _fault :: String):
   input offer: Bool
   input data: Bits(2)
@@ -28,7 +28,12 @@ sync_circuit FaultyQueuePair(depth :: PosInt, _fault :: String):
   inst b(ShiftQueue(Bits(2), depth))
   a.ingress.valid <== offer
   a.ingress.bits <== data
-  a.egress.ready <== (if _fault == "ready" | consume | b.ingress.ready)
+  def handoff_ready:
+    match _fault
+    | "ready": consume
+    | "valid-gated": b.ingress.ready & a.egress.valid
+    | ~else: b.ingress.ready
+  a.egress.ready <== handoff_ready
   b.ingress.valid <== a.egress.valid
   b.ingress.bits <== (if _fault == "payload" | data | a.egress.bits)
   b.egress.ready <== consume

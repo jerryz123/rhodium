@@ -57,10 +57,17 @@
         (define bad (faulty_pair fault depth))
         ;; The correct declaration is nominal; test the bad RTL using the known-good public view.
         (check-exn message (lambda () (prove-transaction bad public children))))
-      (reject "ready" #rx"expected a[.]egress[.]ready driven by b[.]ingress[.]ready, got consume")
-      (reject "payload" #rx"expected b[.]ingress[.]bits driven by a[.]egress[.]bits, got data")
+      ;; Both break the public contract on a legal step, not a structural pin assertion.
+      (reject "ready" #rx"step/space-for-accept not proved")
+      (reject "payload" #rx"step/successor not proved")
       (when (= depth 2)
-        (reject "mask" #rx"expected head driven by b[.]egress[.]bits, got b[.]mask")))
+        (reject "mask" #rx"unknown or reversed wire: head <== b[.]mask")))
+    (when (= depth 2)
+      (test-case "qualifying handoff ready by valid preserves every transfer"
+        (define alternate (faulty_pair "valid-gated" depth))
+        (define seal (prove-transaction alternate public children))
+        (check-true (transaction-for? seal alternate public))
+        (require-feasible (check-retirement-order (observe-fifo-seal seal alternate public)))))
     (test-case (format "QueuePair(~a): wrong child depth or reversed history cannot issue evidence" depth)
       (define wrong-leaf (shift-queue-seal-at (if (= depth 1) 2 1)))
       (check-exn #rx"expected certified evidence for this transaction view"
