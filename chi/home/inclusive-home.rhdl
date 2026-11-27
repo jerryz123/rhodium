@@ -11,6 +11,7 @@ import:
   lib("flow/circular-priority.rhdl") open
   lib("flow/retained-selection.rhdl").RetainedSelection
   lib("flow/gate.rhdl").gate_flow
+  lib("flow/grant.rhdl").grant_merge
   lib("flow/queue.rhdl").Queue
   lib("flow/event.rhdl") open
   lib("chi/protocol/params.rhdl") open
@@ -746,12 +747,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def selected_subordinate_request_writeback = subordinate_request_selection.selected[1]
   wire slot_subordinate_request_ready: Bool
   def slot_requests :: Endpoint = inject_interface(Decoupled(CHIReqFlit(p)), ~valid: slot_subordinate_request_valid, ~bits: slot_subordinate_request_bits, ~ready: slot_subordinate_request_ready)
-  subordinate.req.valid <== home_active & mux(selected_subordinate_request_writeback, victim_writebacks.request.valid, slot_requests.valid)
-  subordinate.req.bits <== mux(selected_subordinate_request_writeback, victim_writebacks.request.bits, slot_requests.bits)
-  victim_writebacks.request.ready <== home_active & subordinate.req.ready & selected_subordinate_request_writeback
-  slot_requests.ready <== home_active & subordinate.req.ready & !selected_subordinate_request_writeback
-  describe_interface_selection([!selected_subordinate_request_writeback, selected_subordinate_request_writeback], ~name: "subordinate-request")
-  describe_interface_contract(Array(slot_requests, victim_writebacks.request), subordinate.req, "subordinate-request", ~trace_model: interface_trace_selection(~name: "subordinate-request"))
+  grant_merge(subordinate_request_selection.selected, Array(slot_requests, victim_writebacks.request)) |> gate_flow(home_active) |> subordinate.req
   def subordinate_request_fire = slot_requests.fire()
   def subordinate_request_output_fire = subordinate.req.fire()
   subordinate_request_selection.capture <== subordinate.req.valid & !subordinate.req.ready
@@ -782,12 +778,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def selected_subordinate_data_writeback = subordinate_data_selection.selected[1]
   wire slot_subordinate_data_ready: Bool
   def slot_data :: Endpoint = inject_interface(Decoupled(CHIDatFlit(p)), ~valid: send_victim_data, ~bits: slot_subordinate_data_bits, ~ready: slot_subordinate_data_ready)
-  subordinate.dat.request.valid <== home_active & mux(selected_subordinate_data_writeback, victim_writebacks.data.valid, slot_data.valid)
-  subordinate.dat.request.bits <== mux(selected_subordinate_data_writeback, victim_writebacks.data.bits, slot_data.bits)
-  victim_writebacks.data.ready <== home_active & subordinate.dat.request.ready & selected_subordinate_data_writeback
-  slot_data.ready <== home_active & subordinate.dat.request.ready & !selected_subordinate_data_writeback
-  describe_interface_selection([!selected_subordinate_data_writeback, selected_subordinate_data_writeback], ~name: "subordinate-data")
-  describe_interface_contract(Array(slot_data, victim_writebacks.data), subordinate.dat.request, "subordinate-data", ~trace_model: interface_trace_selection(~name: "subordinate-data"))
+  grant_merge(subordinate_data_selection.selected, Array(slot_data, victim_writebacks.data)) |> gate_flow(home_active) |> subordinate.dat.request
   def subordinate_data_fire = slot_data.fire()
   def subordinate_data_output_fire = subordinate.dat.request.fire()
   def selected_subordinate_data_final = mux(selected_subordinate_data_writeback, victim_writebacks.data.bits.data_id === chi_transfer_data_id(chi_data_beats_minus_one(CHITransferSize.Bytes64, p), p), final_victim_data)

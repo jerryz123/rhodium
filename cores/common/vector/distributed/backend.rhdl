@@ -82,10 +82,20 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
   claims.macro_groups <== instructions.destinations
   claims.macro_issued <== instructions.closed
 
-  /* Dispatch allocates once. The same owner follows each sequencer. */
+  /* Allocate once at ordered dispatch. The issue path carries that owner
+     through backpressure; completion slots remain per-beat resources. */
 
-  def ingress = interface_link(Decoupled(VectorDispatchEntry(xlen, slots)))
-  def candidate :: VectorCheckedDescriptor(xlen) = ingress.right.bits.checked
+  inst admission(DistributedVectorAdmission(xlen, vlen, slots, Fault, ~pipe: #false, ~dispatch_depth: 0, ~release_declined: #true))
+  request |> admission.request
+  admission.allocate_id <== instructions.allocate_id
+  def Array(to_issue, track) = admission.dispatch |> gate_flow(instructions.available) |> atomic_fork(2)
+  def Array(allocation, claim) = track |> map_flow(entry => entry.descriptor) |> to_valid() |> fork_valid(2)
+  allocation |> instructions.request
+  claim |> claims.request
+  def allocated = to_issue |> map_flow(entry => VectorDispatchEntry(xlen, slots)):
+    checked: entry
+    owner: instructions.allocate_id
+  def candidate :: VectorCheckedDescriptor(xlen) = allocated.bits.checked
   def descriptor :: VectorDescriptor(xlen) = candidate.descriptor
   def route = memory_route(xlen, vlen, descriptor, candidate.certified)
   def row_memory_eligible = route === MemoryRoute.Direct
@@ -102,17 +112,14 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
   // can occupy the row engine that the oldest precise checker must drain.
   def blocked = (needs_special & !special.install_ready) ||| (special.busy & checking & row_memory_eligible)
   reg checker_reserved(~init: Bool(#false))
-  def tagged = ingress.right |> filter_flow(_entry => !no_work) |> gate_flow(!checker.busy & !checker_reserved & !blocked)
-  special.install.valid <== tagged.fire() & needs_special
-  special.install.bits <== ingress.right.bits
+  def tagged = allocated |> filter_flow(_entry => !no_work) |> gate_flow(!checker.busy & !checker_reserved & !blocked)
+  observe_transfer(tagged) |> filter_valid(_entry => needs_special) |> special.install
   when (special.install.valid): checking <== checked_indices
-  when (ingress.right.fire() & !no_work & compute):
+  when (allocated.fire() & !no_work & compute):
     def unit = resolve_row_unit(xlen, vlen, descriptor, fp32, fp16)
     assert(unit =/= RowUnit.Unavailable, "distributed_vector_execute_has_route")
   instructions.reclaimed |> paths.reclaimed
   paths.memory_busy <== rows.unavailable
-  claims.request.valid <== ingress.right.fire()
-  claims.request.bits <== candidate.descriptor
   claims.allocation_empty <== no_work
   def allocating :: VectorCheckedDescriptor(xlen) = tagged.bits.checked
   paths.native_access <== row_memory_eligible
@@ -244,14 +251,6 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
   when (tagged.fire() & (route === MemoryRoute.Checked)): checker_reserved <== Bool(#true)
   elsewhen (checker.start.fire()): checker_reserved <== Bool(#false)
   special.discard <== checker.discard_indices
-  inst admission(DistributedVectorAdmission(xlen, vlen, slots, Fault, ~pipe: #false, ~dispatch_depth: 0, ~release_declined: #true))
-  request |> admission.request
-  /* Allocate once at ordered dispatch. The issue path carries that same owner
-     through backpressure; completion slots remain per-beat execution resources. */
-  admission.allocate_id <== instructions.allocate_id
-  def Array(to_issue, track) = admission.dispatch |> gate_flow(instructions.available) |> atomic_fork(2)
-  def allocation = track |> map_flow(entry => entry.descriptor) |> to_valid()
-  allocation |> instructions.request
   when (allocation.valid):
     trace_instructions[instructions.allocate_id] <== VectorTraceInstruction(xlen):
       pc: allocation.bits.pc
@@ -268,10 +267,6 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
   )
   describe_interface_contract(allocation, Array(row_alu.read, special.read, special.lookahead), "instruction-readers",
                               ~trace_model: interface_trace_retained_bank(~name: "instruction-readers"))
-  def allocated = to_issue |> map_flow(entry => VectorDispatchEntry(xlen, slots)):
-    checked: entry
-    owner: instructions.allocate_id
-  allocated |> ingress.left
   row_alu.fp_request |> service.fp_request
   service.fp_result |> row_alu.fp_result
   row_alu.multiply_request |> service.multiply_request

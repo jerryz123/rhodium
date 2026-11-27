@@ -187,12 +187,11 @@ owned by the separate DBID table after final DAT.
 The victim-writeback buffer declares its own retained bank: capture at enqueue,
 release only when completion is accepted, and select the original request/data/
 completion arbiter entry. Neither early `Comp` nor final DAT releases that owner.
-Local selection contracts around the Home's existing subordinate muxes choose
-between direct slot and buffered-victim ancestry using the functional locked
-selection controls. `inject_interface` exposes the direct slot REQ/DAT wires;
-it adds no queue, scheduling, or pipeline stage. Do not summarize across the
-writeback child or infer parents from rewritten CHI transaction IDs.
-These muxes and the victim buffer's REQ/DAT/completion arbiters use Flow's
+Each subordinate `grant_merge` uses the retained grant to select the flit,
+return ready to its producer, and propagate that producer's ancestry.
+Input 0 is the direct slot offer exposed by `inject_interface`. Input 1 is
+the victim buffer output. A `home_active` gate blocks both during initialization.
+The Home and the victim buffer's REQ/DAT/completion arbiters use Flow's
 `RetainedSelection`; CHI still owns their capture events, fairness, and payload
 stability. REQ/completion capture stalled offers, while DAT also captures a
 transferred non-final beat and releases only on the final transfer. The Home's

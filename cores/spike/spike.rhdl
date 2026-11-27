@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("flow/map.rhdl").map_flow
   "profile.rhm" open
   "protocol.rhdl" open
   "dpi/spike-dpi.rhdl" open
@@ -102,9 +103,7 @@ sync_circuit SpikeCore(config :: SpikeConfig,
     interrupts.machine_software.as_bits()
   ) ++ interrupts.supervisor_software.as_bits()
 
-  spike.address.request.ready <== spike.address.response.ready
-  spike.address.response.valid <== spike.address.request.valid
-  spike.address.response.bits <== spike_address_response(chi_config.physical_map, spike.address.request.bits)
+  spike.address.request |> map_flow(request => spike_address_response(chi_config.physical_map, request)) |> spike.address.response
 
   spike.instruction <=> instruction.transaction
   spike.data <=> data.transaction

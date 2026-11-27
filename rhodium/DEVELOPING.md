@@ -547,9 +547,9 @@ public ready-valid and Flow surfaces, and CHI protocol, transaction, and channel
 modules. Spike-owned CHI adapters do not import RV5Stage. Its C++ DPI runtime
 reuses immutable physical-attribute grants issued by the core's direct PMA-map
 lookup; no native copy of the SoC address map is introduced. `spike.rhdl` directly
-imports `protocol.rhdl` for the grant response and `riscv/rtl/pma.rhdl` for its
-typed map contract. The runtime
-depends on the pinned Spike/FESVR installation built by `sims/fesvr/install.sh`.
+imports `protocol.rhdl` for the grant response, `riscv/rtl/pma.rhdl` for its
+typed map contract, and `flow/map.rhdl` to connect address queries to responses.
+The runtime depends on the pinned Spike/FESVR installation built by `sims/fesvr/install.sh`.
 In `riscv/rtl/`, `decode.rhdl` imports
 `std/decode.rhdl`, while `atomic.rhdl` and `interrupt.rhdl` import
 `std/bits.rhdl`; these modules materialize reusable architectural values and

@@ -1041,9 +1041,7 @@ sync_circuit BankedL1DCache(xlen :: XLen,
   service_requests.probe_set <== spec_index_set
   def incoming_clear = !core.request.valid ||| (live.access.is_load_or_store() & (live.address[offset_width..(offset_width + set_width)] =/= spec_index_set))
   independent_demand <== incoming_clear & spec_load_offer & !reserved_set(spec_index_set) & !snoop_pending & !maintenance_active & !pending_mutation_valid & (!miss_active ||| miss_allows_hits) & (!resolved_valid ||| (resolved_access.is_load_or_store() & (spec_index_set =/= retained_set))) & (!lookup_slot.egress.valid ||| (lookup_request.access.into(CacheOperation).is_load_or_store() & (spec_index_set =/= lookup_set))) & service_requests.independent
-  scheduler.victim.valid <== victim_gather.read.valid
-  scheduler.victim.bits <== copyback_request.bits.address[offset_width..(offset_width + set_width)] ++ victim_gather.read.bits
-  victim_gather.read.ready <== scheduler.victim.ready
+  victim_gather.read |> map_flow(row => copyback_request.bits.address[offset_width..(offset_width + set_width)] ++ row) |> scheduler.victim
   scheduler.victim_data |> victim_gather.returned
 
   def refill_install_address = packet_set ++ refill_row

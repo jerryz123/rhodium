@@ -518,7 +518,8 @@ void finish_maintenance() {
   requester_responses_ready_in = {};
 }
 
-void accept_victim_packet(std::uint8_t packet_id, unsigned __int128 payload) {
+void accept_victim_packet(std::uint8_t packet_id, unsigned __int128 payload,
+                          std::uint16_t dbid = MEMORY_DBID) {
   CHIDatFlit expected_packet;
   {
     while (!port_out.psubordinate.pdat.prequest.pvalid)
@@ -530,11 +531,11 @@ void accept_victim_packet(std::uint8_t packet_id, unsigned __int128 payload) {
     expected_packet.ptrace_utag = active_request.ptrace_utag;
     expected_packet.pqos = active_request.pqos;
     expected_packet.popcode = NON_COPY_BACK_WRITE_DATA;
-    expected_packet.pdbid_uor_umecid = MEMORY_DBID;
+    expected_packet.pdbid_uor_umecid = dbid;
     expected_packet.phome_unid_uor_upbha_uor_umismatched_umecid = HOME_ID;
     expected_packet.psrc_uid = HOME_ID;
     expected_packet.ptgt_uid = MEMORY_ID;
-    expected_packet.ptxn_uid = MEMORY_DBID;
+    expected_packet.ptxn_uid = dbid;
     CHECK(!subordinate_data_ready_in.pready);
     for (unsigned cycle = 0; cycle < 3; ++cycle) {
       home_tick();
@@ -548,7 +549,7 @@ void accept_victim_packet(std::uint8_t packet_id, unsigned __int128 payload) {
     CHECK(port_out.psubordinate.pdat.prequest.pvalid &&
           port_out.psubordinate.pdat.prequest.pbits.popcode ==
               NON_COPY_BACK_WRITE_DATA &&
-          port_out.psubordinate.pdat.prequest.pbits.ptxn_uid == MEMORY_DBID &&
+          port_out.psubordinate.pdat.prequest.pbits.ptxn_uid == dbid &&
           port_out.psubordinate.pdat.prequest.pbits.pdata_uid == packet_id &&
           port_out.psubordinate.pdat.prequest.pbits.pdata == wide(payload));
     home_tick();
@@ -556,7 +557,8 @@ void accept_victim_packet(std::uint8_t packet_id, unsigned __int128 payload) {
   }
 }
 
-void copyback(std::uint64_t address, std::uint8_t state) {
+void copyback(std::uint64_t address, std::uint8_t state,
+              std::uint64_t payload_base = 0xdead0000) {
   CHIRspFlit grant;
   {
     send_request(address, UINT64_C(27), UINT64_C(6), DATA_ID);
@@ -585,7 +587,7 @@ void copyback(std::uint64_t address, std::uint8_t state) {
       request_data_in.pbits.presp = state;
       request_data_in.pbits.pbyte_uenable = state == 0 ? 0 : UINT64_MAX;
       request_data_in.pbits.pdata = wide(
-          state == 0 ? 0 : UINT64_C(3735879680) + ((packet)&low_mask(128)));
+          state == 0 ? 0 : payload_base + packet);
       if (INVALID_CASE == 1)
         request_data_in.pbits.pbyte_uenable = UINT64_C(255);
       if (INVALID_CASE == 2 && packet == 2)
@@ -610,6 +612,59 @@ void copyback(std::uint64_t address, std::uint8_t state) {
       home_tick();
     }
   }
+}
+
+// Two dirty sets let a maintenance slot and a buffered eviction compete for
+// the same subordinate channels. Each DBID identifies a distinct trace parent.
+void check_competing_writebacks() {
+  reset = 1;
+  home_tick();
+  reset = 0;
+  finish_directory_sweep();
+  constexpr std::uint64_t eviction_data = 0x1000, maintenance_data = 0x2000;
+  for (auto line : {LINE0, LINE1}) {
+    send_request(line, 7, 6, DATA_ID); // ReadUnique, then return the dirty line.
+    fill_and_return(line, 32);
+    copyback(line, 6, line == LINE0 ? eviction_data : maintenance_data);
+  }
+  send_request(LINE2, READ_NO_SNP);
+  fill_and_return(LINE2, 64);
+
+  send_request(LINE3, READ_NO_SNP); // Evict LINE0 from the full set.
+  for (unsigned i = 0; i < 16 && !port_out.psubordinate.preq.pvalid; ++i)
+    home_tick();
+  CHECK(port_out.psubordinate.preq.pvalid);
+  stall_memory_request();
+  send_request(LINE1, 8, 6, HTIF_ID, false, false, 1); // CleanShared in the other set.
+  std::uint16_t eviction, fill, maintenance;
+  accept_memory_request_transaction(LINE0, WRITE_NO_SNP_FULL, eviction, 1);
+  accept_memory_request_slot(LINE3, fill, 1);
+  accept_memory_request_transaction(LINE1, WRITE_NO_SNP_FULL, maintenance);
+  CHECK(eviction != maintenance && eviction != fill && maintenance != fill);
+
+  auto grant_dbid = [](std::uint16_t txn, std::uint16_t dbid) {
+    subordinate_responses_in = {};
+    subordinate_responses_in.pbits.popcode = DBID_RESP;
+    subordinate_responses_in.pbits.psrc_uid = MEMORY_ID;
+    subordinate_responses_in.pbits.ptgt_uid = HOME_ID;
+    subordinate_responses_in.pbits.ptxn_uid = txn;
+    subordinate_responses_in.pbits.pdbid_uor_ugroup_uid = dbid;
+    subordinate_responses_in.pvalid = 1;
+    eval();
+    CHECK(port_out.psubordinate.prsp.pready);
+    home_tick();
+    subordinate_responses_in = {};
+  };
+  constexpr unsigned maintenance_dbid = MEMORY_DBID + 1;
+  grant_dbid(eviction, MEMORY_DBID);
+  accept_victim_packet(0, eviction_data);
+  grant_dbid(maintenance, maintenance_dbid);
+  for (unsigned beat = 1; beat < 4; ++beat)
+    accept_victim_packet(beat, eviction_data + beat);
+  for (unsigned beat = 0; beat < 4; ++beat)
+    accept_victim_packet(beat, maintenance_data + beat, maintenance_dbid);
+  eval();
+  CHECK(!port_out.psubordinate.pdat.prequest.pvalid);
 }
 
 void run_case() {
@@ -1604,4 +1659,6 @@ void run_case() {
   fill_and_return(LINE2, UINT64_C(64));
   send_request(LINE0, READ_NO_SNP);
   fill_and_return(LINE0, UINT64_C(80));
+  if (INVALID_CASE == 0)
+    check_competing_writebacks();
 }
