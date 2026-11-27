@@ -86,21 +86,18 @@ sync_circuit SuperscalarSv39Translation(config :: RiscvHartCHIConfig, ~svnapot: 
   def data_demand = query.demand
   /* Capture exact probes before arbitrating the DTLB. The same request is
      held through PTW refill, retaining the full guest fault result. */
-  def exact = interface_link(Decoupled(VectorRange()))
   wire exact_done: Bool
   wire exact_mapping: VectorElementMapping()
   def exact_head :: Endpoint:
     if element_checks
     | block:
         interface element_translation(VectorElementTranslation(), ~role: responder)
-        element_translation.request |> pipe(1) |> exact.left
         element_translation.response.valid <== exact_done
         element_translation.response.bits <== exact_mapping
-        exact.right
+        element_translation.request |> pipe(1)
     | block:
-        exact.left.valid <== Bool(#false)
-        exact.left.bits <== dont_care(VectorRange())
-        exact.right
+        wire idle_ready: Bool
+        inject_interface(Decoupled(VectorRange()), ~valid: Bool(#false), ~bits: dont_care(VectorRange()), ~ready: idle_ready)
   def exact_probe = exact_head.valid & !data_demand & !query.busy
   def vector_probe = (vector_window.translation.request.valid ||| exact_head.valid) & !data_demand & !query.busy
   def certified_physical = !query.split & !vector_probe & mux(query.wb_valid, request_vector & vector_fast.request_physical, query.mem_valid & mem_physical)

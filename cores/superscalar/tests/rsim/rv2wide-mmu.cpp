@@ -1217,9 +1217,15 @@ int main() {
     release_window();
     // Exact element translation reuses the failed walk with the same context.
     element_translation_in.prequest = {1,{0x600000,0x600000,0}};
-    eval(); CHECK(element_translation_out.prequest.pready); tick_model(); element_translation_in.prequest.pvalid = 0;
+    eval();
+    CHECK(element_translation_out.prequest.pready && !element_translation_out.presponse.pvalid);
+    tick_model();
+    element_translation_in.prequest = {0, {0x700000, 0x700000, 1}};
     eval(); CHECK(element_translation_out.presponse.pvalid && element_translation_out.presponse.pbits.pservice == 3);
-    CHECK(element_translation_out.presponse.pbits.pcause == 13 && !physical_valid); tick_model();
+    CHECK(element_translation_out.presponse.pbits.pcause == 13 && !physical_valid);
+    tick_model();
+    eval();
+    CHECK(!element_translation_out.presponse.pvalid);
     // Cold speculative certification never allocates a page walk or a fallback window.
     fence();
     vector_fast_in.prequest = {1, {0x500008, 0x50000f, 0}};

@@ -6,7 +6,7 @@ import:
   "../mmu-fixture.rhdl" open
 
 def program = elaborate(SuperscalarMmuFixture())
-def host_program = elaborate(SuperscalarMmuFixture(~hypervisor: #false))
+def host_program = elaborate(SuperscalarMmuFixture(~hypervisor: #false, ~element_checks: #false))
 def bare_program = elaborate(SuperscalarMmuFixture(~bare: #true))
 export:
   program

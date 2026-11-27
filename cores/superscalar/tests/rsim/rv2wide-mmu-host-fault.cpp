@@ -1,4 +1,4 @@
-// Exercises exact fault replay, queued data walks, and SATP invalidation on the host-only MMU.
+// Exercises fault replay, queued walks, invalidation, and vector range translation on the host-only MMU.
 // SPDX-License-Identifier: Apache-2.0
 #include "test.hpp"
 
@@ -141,6 +141,28 @@ void check_queued_data_epoch(bool cancel_pending) {
   wb_valid = 0;
 }
 
+void check_vector_range_without_element_checks() {
+  reset_host();
+  vector_precheck_in.prequest = {1, {0x10080, 0x10087, 0}};
+  eval();
+  CHECK(vector_precheck_out.prequest.pready);
+  tick_model();
+  vector_precheck_in.prequest = {};
+  reply_pte(0x10, 0x43); // Supervisor-readable identity superpage.
+  eval();
+  for (unsigned cycle = 0; cycle < 10 && !vector_precheck_out.presponse.pvalid; ++cycle)
+    tick_model();
+  CHECK(vector_precheck_out.presponse.pvalid && vector_precheck_out.presponse.pbits);
+  vector_precheck_in.presponse.pready = 1;
+  tick_model();
+  vector_precheck_in.presponse.pready = 0;
+  vector_precheck_in.prelease.pvalid = 1;
+  tick_model();
+  vector_precheck_in.prelease.pvalid = 0;
+  eval();
+  CHECK(vector_precheck_out.prequest.pready && !physical_valid);
+}
+
 int main() {
   return run_test([] {
     for (bool invalidate_on_completion : {false, true}) {
@@ -174,5 +196,6 @@ int main() {
     }
     for (bool cancel_pending : {false, true})
       check_queued_data_epoch(cancel_pending);
+    check_vector_range_without_element_checks();
   });
 }
