@@ -60,9 +60,13 @@ On admitting the continuation, reuse its assembled instruction PC to publish
 the repair. Do not re-decode the predicted action or re-read the changed stack.
 Faults and epoch clears suppress that redirect.
 
-Keep full prediction PCs in scan, repair, and RAS feedback. Encode parcel ownership
-on the packet branch only: the scanner knows whether a newly discovered fallback
-starts in its retained prefix. On transfer to residual storage, keep only whether
+Keep full prediction PCs for scan and repair. Form speculative RAS links from
+the registered S2 word base and the call's parcel and length; a discovered
+call completed from the previous word links to the current base plus two.
+Keep admission, replay, faults, and recovery off the word increment and qualify
+the write separately. Encode parcel ownership on the packet branch: the
+scanner knows whether a newly discovered fallback starts in its retained
+prefix. On transfer to residual storage, keep only whether
 the upper parcel owns the prediction. A live continuation can supply the hint
 for that prefix; it cannot override a standalone compressed residual.
 

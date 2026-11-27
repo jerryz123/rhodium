@@ -161,6 +161,26 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
     return_repair: refreshed_prediction
 
 
+  /* Speculative RAS link data, independent of packet admission and recovery.
+     For word base W, a lower instruction links to W+2 or W+4; an upper
+     instruction links to W+4 or W+6. A prefix completed here links to W+2.
+     Only the word increment carries; parcel selection chooses its result. */
+
+  def word = packet.pc[2..xlen.width]
+  def next_word = word + Bits(xlen.width - 2)(1)
+  def hit = packet.prediction.valid
+  def previous = !hit & first_fallback & partial
+  def upper = mux(hit, predicted_upper, !first_fallback ||| first_upper)
+  def compressed = mux(hit, packet.prediction.compressed, !first_fallback ||| first_compressed)
+  def link_word = mux(!previous & (upper ||| !compressed), next_word, word)
+  def link_half = previous ||| (upper ^ compressed)
+  def link = link_word ++ link_half.as_bits() ++ Bits(1)(0)
+  // A return repair changes the target, not the action. A stale BTB hit
+  // is not a miss and cannot supply a fallback on this occurrence.
+  def link_action = mux(hit, packet.prediction.ras_action, fallback_prediction.ras_action)
+  def ras_candidate = (prediction.valid ||| missing_fallback) & (link_action =/= RasAction.None)
+
+
   /* Packet cut, repair, and fallback publication.
      A valid lower compressed prediction cuts the upper parcel; a stale cut retains
      the complete word and restarts after it, not before it. */
@@ -185,10 +205,10 @@ sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
     def guest = if hypervisor | raw.response.guest | literal(RiscvGuestException(), 0)
     RV5StageFetchPacket.create(xlen, hypervisor, raw.pc, raw.response.word, mask, raw.response.page_fault, raw.response.access_fault, prediction, guest)
   ) |> egress
-  (hints |> filter_valid(_packet => !clear.valid & packet_clean & effective_prediction.valid & (effective_prediction.ras_action =/= RasAction.None))
+  (hints |> filter_valid(_packet => !clear.valid & packet_clean & ras_candidate)
     |> map_valid(_packet => RasUpdate(xlen)):
-         action: effective_prediction.ras_action
-         return_address: effective_prediction.pc + mux(effective_prediction.compressed, Bits(xlen.width)(2), Bits(xlen.width)(4))
+         action: link_action
+         return_address: link
   ) |> speculate
   (fallbacks |> filter_valid(_packet => fallback_valid & packet_clean & !clear.valid) |> map_valid(_packet => redirect_prediction)) |> fallback
   (repairs |> filter_valid(_packet => !clear.valid & bad_prediction) |> map_valid(packet => RV5StageFetchRepair(xlen)):

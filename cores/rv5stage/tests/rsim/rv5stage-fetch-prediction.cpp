@@ -48,8 +48,27 @@ int request_checks = 0, output_checks = 0, local_flushes = 0;
 bool continuous_requests = 0, continuous_outputs = 0;
 std::deque<std::uint64_t> expected_requests;
 constexpr int slot_stream = 19;
+enum { short_lower_call = 20, short_upper_call, crossing_call, short_coroutine };
+constexpr auto call_word = negative_base + 0xffc;
+constexpr auto callee = call_word + 0x102;
 
 std::uint32_t word_at(std::uint64_t address) {
+  if (mode == short_coroutine) {
+    if (address == call_word - 0x100) return 0x100000ef; // JAL x1,+256.
+    if (address == call_word) return 0x92820001; // C.NOP; C.JALR x5 (PopPush).
+    if (address == call_word - 0xfc) return 0x00018082; // C.JR x1 follows the replacement link.
+    return 0x00010001;
+  }
+  if (mode >= short_lower_call && mode <= crossing_call) {
+    if (address == call_word) {
+      if (mode == short_lower_call) return 0x00019102; // C.JALR x2; C.NOP
+      if (mode == short_upper_call) return 0x91020001; // C.NOP; C.JALR x2
+      return 0x00ef0001; // C.NOP; JAL x1,+256 starting at the last parcel of the page.
+    }
+    if (address == call_word + 4 && mode == crossing_call) return 0x00011000;
+    if (address == (callee & ~UINT64_C(3))) return 0x80820001; // C.NOP; C.JR x1
+    return 0x00010001;
+  }
   if (mode == slot_stream)
     return (std::uint32_t((address >> 2) & 0xfff) << 20) | 0x13; // Distinct ADDIs, one per packet.
   if (mode == 15)
@@ -393,6 +412,9 @@ void falling_update() {}
 
 enum class Continuation { Complete, Fault, Flush };
 unsigned tracked_action = 0, prefix_actions = 0, return_repairs = 0;
+bool check_push = false;
+std::uint64_t expected_link = 0;
+unsigned pushes = 0;
 bool track_stalled_fallback = false;
 unsigned fallback_pulses = 0;
 
@@ -412,10 +434,14 @@ extern "C" void observe_return_repair(
     std::uint64_t rst, std::uint64_t speculate, std::uint64_t link, std::uint64_t action,
     std::uint64_t fallback, std::uint64_t valid, std::uint64_t pc, std::uint64_t target,
     std::uint64_t compressed, std::uint64_t predicted_action) {
+  if (!rst && check_push && speculate && action == 1) {
+    CHECK(link == expected_link);
+    ++pushes;
+  }
   if (rst || !tracked_action)
     return;
-  if (speculate && link == return_program_base + 774) {
-    CHECK(action == tracked_action);
+  if (speculate && (action == 3 || link == return_program_base + 774)) {
+    CHECK(link == return_program_base + 774 && action == tracked_action);
     ++prefix_actions;
   }
   if (fallback) {
@@ -477,6 +503,61 @@ void replay_straddling_return(unsigned action, Continuation outcome) {
   tracked_action = 0;
 }
 
+void check_call_links() {
+  for (int stream : {short_lower_call, short_upper_call, crossing_call}) {
+    for (bool warm : {false, true}) {
+      if (!warm && stream != crossing_call) continue; // Indirect C.JALR needs a BTB target.
+      initialize(stream);
+      const auto pc = stream == short_lower_call ? call_word : call_word + 2;
+      expected_link = pc + (stream == crossing_call ? 4 : 2);
+      if (warm) train(pc, callee, stream != crossing_call, 0, 1, 1);
+      if (stream == crossing_call) replay_once_address = call_word + 4;
+      pushes = 0;
+      check_push = true;
+      start(pc);
+      expect_pc(pc, callee, 0, 1);
+      expect_pc(callee, expected_link, 0, 2);
+      CHECK(pushes == 1);
+      check_push = false;
+    }
+  }
+
+  // Discover an upper compressed call while scanning from the lower parcel.
+  // PopPush redirects to the old head; the next return consumes the new link.
+  initialize(short_coroutine);
+  start(call_word - 0x100);
+  expect_pc(call_word - 0x100, call_word, 0, 1);
+  expect_pc(call_word, call_word + 2);
+  expect_pc(call_word + 2, call_word - 0xfc, 0, 3);
+  expect_pc(call_word - 0xfc, call_word + 4, 0, 2);
+
+  // Cancel a clean, cold call on the very edge where the continuation
+  // would have pushed. The new epoch's untrained return sees an empty RAS.
+  initialize(crossing_call);
+  expected_link = call_word + 6;
+  pushes = 0;
+  check_push = true;
+  start(call_word + 2);
+  while (!s2_response.pvalid || s2_response.pbits.pword != 0x00011000) falling();
+  start(callee);
+  expect_pc(callee, callee + 2);
+  CHECK(pushes == 0);
+  check_push = false;
+
+  // The action bits of a stale BTB hit are present, but a failed length
+  // check vetoes the push. It must not turn into discovery on the same edge.
+  initialize(short_lower_call);
+  train(call_word, callee, false, 0, 1, 1);
+  expected_link = call_word + 4;
+  pushes = 0;
+  check_push = true;
+  start(call_word);
+  expect_pc(call_word, call_word + 2);
+  falling();
+  CHECK(pushes == 0);
+  check_push = false;
+}
+
 void check_reserved_slots() {
   constexpr std::uint64_t base = 0x4000, restart = 0x8100;
   initialize(slot_stream);
@@ -536,6 +617,7 @@ void stimulus() {
   {
     fallback_trace_bind();
     check_reserved_slots();
+    check_call_links();
     // The Success variant must preserve the target's own high bits, not the PC's.
     constexpr auto high_target = UINT64_C(0xffffffc000000200);
     initialize(0);
