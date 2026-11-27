@@ -54,5 +54,8 @@ sync_circuit DistributedVectorDispatch(xlen :: XLen, slots :: Pow2Int):
     def allocate = input_path.fire()
     when allocate: descriptors[kind] <== input_path.bits
     when (allocate ||| heads[kind].fire()): starting[kind] <== allocate
+    def name = "dispatch-head-" ++ to_string(kind)
+    describe_interface_retained_storage(allocate, heads[kind].fire(), starting[kind], ~name: name)
+    describe_interface_contract(input_path, heads[kind], name, ~trace_model: interface_trace_retained(~name: name))
 
 export DistributedVectorDispatch vector_dispatch_empty

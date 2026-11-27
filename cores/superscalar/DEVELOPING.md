@@ -403,9 +403,10 @@ parents accepted load/divide requests; EX parents the multiply launch marker.
 WB authorization filters killed launches and attaches the surviving instruction's
 completion metadata. Vector admission has its own live-WB fork branch and
 pending-safe lane-selection contract, so stalls retain the offered owner's
-ancestry too. Its descriptor queue
-and sequencer retain that MEM occurrence, independently of eventual retirement;
-never qualify vector admission with final WB retirement feedback. Do not add a whole
+ancestry too. For either vector backend, a descriptor accepted on its retirement
+edge names that lane's successful WB occurrence. An offer still stalled or
+accepted before retirement retains the live lane's MEM occurrence.
+Never qualify functional vector admission with retirement feedback. Do not add a whole
 module trace contract across already contracted Flow children. The shared divider
 owns its intrinsic retained request-to-response contract.
 

@@ -1549,9 +1549,6 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   vector.request.bits <== wb_descriptor.updated(~precertified: wb_vector_certified, ~certificate: wb_certificate)
   when (vector.request.valid):
     assert(wb_descriptor_lane === wb_vector_lane, "superscalar_wb_vector_descriptor_owner")
-  // Admission retains the live lane's owner even when vector memory retires later.
-  describe_interface_selection((for List (lane in 0..issue_width): wb_vector_lane === Bits(2)(lane)), ~name: "vector-lane")
-  describe_interface_contract((for Array (lane in 0..issue_width): wb_paths[lane][2]), vector.request, "vector-lane", ~trace_model: interface_trace_selection(~name: "vector-lane", ~pending: #true))
   def wb_vector_accepted = vector.request.fire()
   def wb_vector_capture = wb_vector_accepted & wb_vector.vector.memory & !wb_vector_certified
   def wb_vector_replay = wb_vector_offer & !wb_vector_accepted
@@ -2025,7 +2022,17 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
       gshare_taken: result.fetched.direction.gshare_taken
       direction_taken: result.fetched.direction.taken
 
-    observed |> fork_valid(4)
+    observed |> fork_valid(5)
+
+  // A retiring descriptor can name WB itself. An unaccepted offer or
+  // precise admission before retirement still belongs to the live pipeline lane.
+  def vector_parents = (for List (paths in wb_paths): paths[2]) ++ (for List (paths in wb_retirement_paths): paths[4])
+  def lane_selected = for List (lane in 0..issue_width): wb_vector_lane === Bits(2)(lane)
+  def retired_offer = for List (retiring in wb_retire): wb_vector_accepted & retiring
+  def live_grants = for List (selected in lane_selected, retired in retired_offer): selected & !retired
+  def retired_grants = for List (selected in lane_selected, retired in retired_offer): selected & retired
+  describe_interface_selection(live_grants ++ retired_grants, ~name: "vector-lane")
+  describe_interface_contract((for Array (parent in vector_parents): parent), vector.request, "vector-lane", ~trace_model: interface_trace_selection(~name: "vector-lane", ~pending: #true))
 
   for (lane in 0..issue_width):
     def wb :: SuperscalarRetirementCommand(xlen, hypervisor) = wb_tokens[lane]

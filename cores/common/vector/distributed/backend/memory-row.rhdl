@@ -170,6 +170,10 @@ sync_circuit VectorMemoryRowSequencer(xlen :: XLen, vlen :: VectorLength, ~store
     last: mux(plain_store, issued_last, last)
 
   def command = launch.bits
+  // Plain stores leave the traversal FSM one cycle before their reserved VRF return.
+  describe_interface_retained_storage(launch.valid, prepared.fire() & prepared.bits.last,
+                                      (phase =/= RowPhase.Idle) ||| pending, ~name: "row-command")
+  describe_interface_contract(launch, prepared, "row-command", ~trace_model: interface_trace_retained(~name: "row-command"))
   // Both sequencers sample v0 in logical element order before packing beats.
   def incoming = command.layout
   def stream_span = memory_command_span(xlen, vlen, command)

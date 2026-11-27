@@ -180,8 +180,12 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
     continues: Bool(#false)
     last: Bool(#true)
   def gather_offer = inject_interface(Valid(PreparedBeat(vlen)), ~valid: gathering, ~bits: element_beat)
-  def admitted_load = grant_merge(vec([!gathering, gathering]).into(MaybeOneHot(2)),
+  def selected_load = grant_merge(vec([!gathering, gathering]).into(MaybeOneHot(2)),
                                   Array(normal_load, gather_offer |> offer_decoupled()))
+  // Every eligible load already has an installed address cursor. Join its
+  // provenance with the selected mask/element without adding a readiness gate.
+  def load_origin = inject_interface(Valid(Bool), ~valid: Bool(#true), ~bits: Bool(#true))
+  def admitted_load = Array(selected_load, load_origin |> offer_decoupled()) |> zip_flow(beat, _origin => beat)
   def load_rows = admitted_load |> gate_flow(load_room ||| !admitted_load.bits.enabled.any())
   def scatter_beat = scatter.operand |> map_valid(_data => element_beat) |> offer_decoupled()
   def admitted_store = grant_merge(vec([!scattering, scattering]).into(MaybeOneHot(2)),
@@ -337,6 +341,14 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
     def delivering = if i == LoadPath | delivery[LoadPath] | release_store
     def issuing = accepted & chosen
     def returning = if i == LoadPath | load.fire() | ack.fire()
+    // A fragment belongs to the installed address cursor even if it uses a
+    // checked element rather than a prepared row. Scatter uses that same owner
+    // to demand VS3; the store AGEN itself keeps the packer's data lineage.
+    def name = if i == LoadPath | "load-cursor" | "scatter-cursor"
+    // A checked stream may install its next cursor before older replies drain.
+    describe_interface_retained_storage(launching, delivering ||| (launching & occupied[i]), occupied[i], ~name: name)
+    describe_interface_contract(start[i], if i == LoadPath | load_origin | scatter.demand,
+                                name, ~trace_model: interface_trace_retained(~name: name))
     when issuing: suffix[i] <== prefix
     when (launching ||| delivering): occupied[i] <== launching
     def replacing = (stream_store === Bool(i == StorePath)) & checked_element.fire()

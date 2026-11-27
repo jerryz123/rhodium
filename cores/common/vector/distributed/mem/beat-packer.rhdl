@@ -81,16 +81,13 @@ sync_circuit VectorBeatPacker(vlen :: VectorLength, ~store: store :: Boolean):
   // All spill bytes come from one source row. A contiguous beat can select
   // that saved row and the live row together. Tails and elements use only
   // the live row, even when it is held across multiple output grants.
-  if store
-  | block:
-      def occupied = carry_mask.any()
-      def save = source.fire() & !r.last & spill.any()
-      def live_bytes = mux(elementwise, element.enabled, mux(tail, spill, enabled & high_lanes))
-      describe_interface_window_storage(
-        1, save, (source.fire() & occupied).as_bits(), occupied.as_bits(), Bool(#false),
-        [!elementwise & !tail & occupied], ~live: live_bytes.any()
-      )
-      describe_interface_contract(source, beat, "store-beat", ~trace_model: interface_trace_window())
-  | #void
+  def occupied = carry_mask.any()
+  def save = source.fire() & !r.last & spill.any()
+  def live_bytes = mux(elementwise, element.enabled, mux(tail, spill, enabled & high_lanes))
+  describe_interface_window_storage(
+    1, save, (source.fire() & occupied).as_bits(), occupied.as_bits(), Bool(#false),
+    [!elementwise & !tail & occupied], ~live: live_bytes.any()
+  )
+  describe_interface_contract(source, beat, if store | "store-beat" | "load-mask", ~trace_model: interface_trace_window())
 
 export VectorBeatPacker

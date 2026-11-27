@@ -51,7 +51,8 @@ sync_circuit VectorStoreSequencer(xlen :: XLen, vlen :: VectorLength, slots :: P
   def demand = scatter.demand
   def hit = resident & (row_tag === demand.bits)
   def Array(row_return, scatter_return) = read_result |> fork_valid(2)
-  def captured = scatter_return |> filter_valid(_data => reading) |> trace_valid_event("vector/store.sequence", ~when: scatter_live, ~fields: _data):
+  def scatter_data = inject_interface(Valid(Bits(dlen)), ~valid: scatter_return.valid & reading, ~bits: scatter_return.bits)
+  def captured = scatter_data |> trace_valid_event("vector/store.sequence", ~when: scatter_live, ~fields: _data):
     pc: trace_instructions[scatter_owner].pc
     instruction(~format: "riscv", ~isa: trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv"), ~pc: "pc"): trace_instructions[scatter_owner].instruction
     owner(~format: "unsigned"): scatter_owner
@@ -92,6 +93,11 @@ sync_circuit VectorStoreSequencer(xlen :: XLen, vlen :: VectorLength, slots :: P
   capture.read.ready <== !scatter_live & read.ready
   row_return |> filter_valid(_data => !reading) |> capture.read_result
   def missed = scatter_live & read.fire()
+  // Only an accepted scatter read creates a returning VS3 row.
+  def fetch_owner = inject_interface(Valid(Bool), ~valid: missed, ~bits: Bool(#true))
+  describe_interface_contract(demand, fetch_owner, "scatter-fetch", ~trace_model: interface_trace_combinational())
+  describe_interface_retained_storage(missed, fill, reading, ~name: "scatter-fetch")
+  describe_interface_contract(fetch_owner, scatter_data, "scatter-return", ~trace_model: interface_trace_retained(~name: "scatter-fetch"))
   reading <== missed
   when missed: row_tag <== demand.bits
   when fill: row_data <== captured.bits

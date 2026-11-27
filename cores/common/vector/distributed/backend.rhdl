@@ -248,6 +248,18 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
     trace_instructions[instructions.allocate_id] <== VectorTraceInstruction(xlen):
       pc: allocation.bits.pc
       instruction: allocation.bits.instruction
+  // These sequencers may read repeatedly, in parallel, or on the cycle
+  // a successor is allocated. Select the registered reader, not the new offer.
+  def readers = [row_alu.chain.owner, special.chain.owner, special.chain.owner]
+  describe_interface_retained_bank(
+    for List (i in 0..slots): allocation.valid & (instructions.allocate_id === InstructionId(i)),
+    for List (i in 0..slots): instructions.reclaimed.valid & (instructions.reclaimed.bits === InstructionId(i)),
+    for List (i in 0..slots): instructions.live[i],
+    ~grants: (for List (reader in readers): for List (i in 0..slots): reader === InstructionId(i)),
+    ~name: "instruction-readers"
+  )
+  describe_interface_contract(allocation, Array(row_alu.read, special.read, special.lookahead), "instruction-readers",
+                              ~trace_model: interface_trace_retained_bank(~name: "instruction-readers"))
   def allocated = to_issue |> map_flow(entry => VectorDispatchEntry(xlen, slots)):
     checked: entry
     owner: instructions.allocate_id

@@ -132,7 +132,7 @@ sync_circuit RowMemoryFixture(xlen :: XLen, vlen):
   rows.oldest_owner <== oldest_owner
   interface launch[2](Decoupled(MemoryFixtureLaunch(xlen)), ~role: consumer)
   interface prepare(Decoupled(MemoryFixtureIssue(xlen)), ~role: consumer)
-  prepare |> map_flow(i => fixture_issue(xlen, vlen, i)) |> rows.prepare
+  prepare |> trace_event("fixture/prepare") |> map_flow(i => fixture_issue(xlen, vlen, i)) |> rows.prepare
   reg trace_instructions(Vec(4, VectorTraceInstruction(xlen)))
   when (prepare.fire()):
     trace_instructions[prepare.bits.owner] <== VectorTraceInstruction(xlen):
@@ -140,7 +140,7 @@ sync_circuit RowMemoryFixture(xlen :: XLen, vlen):
       instruction: prepare.bits.descriptor.instruction
   rows.trace_instructions <== trace_instructions
   for (i in 0..2):
-    (launch[i] |> map_flow(l => MemoryLaunch(xlen, vlen, 4)):
+    (launch[i] |> trace_event("fixture/launch" ++ to_string(i)) |> map_flow(l => MemoryLaunch(xlen, vlen, 4)):
        issue: fixture_issue(xlen, vlen, l.issue)
        pages: l.pages
        service: l.service

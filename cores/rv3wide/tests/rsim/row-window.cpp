@@ -40,6 +40,9 @@ void exercise(bool store, bool masked) {
   auto& launch_out = store ? launch_1_out : launch_0_out;
   constexpr auto sequence = row_sites::vector_store_sequence, agen = row_sites::vector_store_agen;
   const auto first_row = next_event(sequence), first_agen = next_event(agen);
+  const auto load_request = next_event(row_sites::vector_load_agen);
+  const auto load_launch = next_event(row_sites::fixture_launch0);
+  const auto prepare = next_event(row_sites::fixture_prepare);
   const unsigned start = masked ? 1 : 0;
   launch_in.pbits = {};
   launch_in.pbits.pissue.pdescriptor.pstate.pvl = masked ? 59 : 32;
@@ -169,9 +172,19 @@ void exercise(bool store, bool masked) {
   CHECK(source_reads==(store ? 2u:0u));
   if (store) {
     CHECK(next_event(sequence) == first_row + (masked ? 4 : 2));
+    for (auto row=first_row; row<next_event(sequence); ++row)
+      CHECK(parent_sequences({sequence,row},row_sites::fixture_prepare)==std::set<std::uint64_t>{prepare});
     CHECK(next_event(agen) == first_agen + 2);
     for (unsigned i=0; i<2; ++i)
       CHECK(parent_sequences({agen, first_agen+i}, sequence) == std::set<std::uint64_t>{first_row+i});
+  } else {
+    CHECK(next_event(row_sites::vector_load_agen)==load_request+2);
+    for (unsigned i=0; i<2; ++i) {
+      const rheg::Ref child{row_sites::vector_load_agen,load_request+i};
+      const auto &edges=rheg::graph().edges;
+      CHECK(edges.contains({{row_sites::fixture_prepare,prepare},child}));
+      CHECK(edges.contains({{row_sites::fixture_launch0,load_launch},child}));
+    }
   }
 }
 
@@ -262,6 +275,8 @@ void store_lineage(StorePath path, std::uint32_t predicate=UINT32_MAX) {
   constexpr auto agen = row_sites::vector_store_agen;
   const auto sequence = scatter ? row_sites::scatter_capture : row_sites::vector_store_sequence;
   const auto first = next_event(sequence), request = next_event(agen);
+  const auto parent = scatter ? row_sites::fixture_launch1 : row_sites::fixture_prepare;
+  const auto descriptor = next_event(parent);
   launch_1_in={}; memory_in={}; read_result_in={}; checked_element_in={};
   auto& issue=launch_1_in.pbits.pissue;
   auto& d=issue.pdescriptor;
@@ -309,6 +324,8 @@ void store_lineage(StorePath path, std::uint32_t predicate=UINT32_MAX) {
   stream_live=stream_store=0; checked_element_in={}; memory_in={}; read_result_in={};
   CHECK(done && sent==expected && returned==sent && reads==(element ? 1u : 2u));
   CHECK(next_event(sequence)==first+reads && next_event(agen)==request+sent);
+  for (unsigned i=0; i<reads; ++i)
+    CHECK(parent_sequences({sequence,first+i},parent)==std::set<std::uint64_t>{descriptor});
   for (unsigned i=0; i<sent; ++i) {
     std::set<std::uint64_t> parents;
     if (element) parents.insert(first);

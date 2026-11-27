@@ -56,16 +56,19 @@ struct Owner {
   rheg::Ref parent{};
   std::uint64_t pc = 0, instruction = 0;
   unsigned lane = 0;
+  std::uint64_t admission_cycle = 0;
 };
 struct Offer { bool accepted = false; std::uint64_t pc = 0, instruction = 0; };
 std::array<std::optional<Owner>, 2> wb, next_wb;
-std::array<std::uint64_t, 2> mem_sequences{};
+std::array<std::uint64_t, 2> mem_sequences{}, wb_sequences{};
+std::array<std::optional<std::uint64_t>, 2> retiring_pc;
 std::deque<Owner> admitted;
 std::optional<Owner> active;
 Offer admission, dispatch;
 bool released = false;
 std::uint64_t trace_cycle = 0, sequence = 0, stall = 0, complete = 0;
 unsigned admissions = 0, dispatches = 0, queued = 0, replacements = 0;
+unsigned beats_from_mem = 0, beats_from_wb = 0;
 unsigned rejections = 0;
 std::map<std::uint64_t, unsigned> admission_counts;
 std::map<std::uint64_t, unsigned> admission_cycles;
@@ -74,6 +77,7 @@ std::map<std::uint64_t, std::vector<unsigned>> sequence_cycles;
 std::array<unsigned, 2> lanes{};
 std::map<rheg::Ref, unsigned> beats;
 constexpr unsigned mem_sites[] = {superscalar_vector_sites::mem0, superscalar_vector_sites::mem1};
+constexpr unsigned wb_sites[] = {superscalar_vector_sites::wb0, superscalar_vector_sites::wb1};
 
 bool equal(rheg::Ref a, rheg::Ref b) {
   return a.site == b.site && a.sequence == b.sequence;
@@ -81,6 +85,8 @@ bool equal(rheg::Ref a, rheg::Ref b) {
 void sample() {
   next_wb = {};
   for (unsigned lane = 0; lane < 2; ++lane) {
+    const auto &retirement = lane ? retired_1_out : retired_0_out;
+    retiring_pc[lane] = retirement.pvalid ? std::optional<std::uint64_t>{retirement.pbits.pfetched.ppc} : std::nullopt;
     const auto &port = lane ? memory_stage_1_out : memory_stage_0_out;
     if (port.pvalid)
       next_wb[lane] = Owner{{}, port.pbits.ppc, port.pbits.praw_uinstruction, lane};
@@ -106,6 +112,7 @@ void check_occurrence(unsigned site, std::uint64_t &serial) {
   CHECK(graph.field(child, "instruction").unsigned_value() == active->instruction);
   CHECK(graph.nodes.at(active->parent).cycle < found->second.cycle);
   if (site == superscalar_vector_sites::sequence) {
+    if (active->parent.site == wb_sites[active->lane]) ++beats_from_wb; else ++beats_from_mem;
     ++beats[active->parent];
     sequence_cycles[active->pc].push_back(cycle);
   }
@@ -113,12 +120,22 @@ void check_occurrence(unsigned site, std::uint64_t &serial) {
 }
 void check() {
   if (reset) {
-    wb = {}; next_wb = {}; mem_sequences = {};
+    wb = {}; next_wb = {}; mem_sequences = {}; wb_sequences = {};
     admitted.clear(); active.reset();
     trace_cycle = sequence = stall = complete = 0;
     return;
   }
   const auto &graph = rheg::graph();
+  std::array<std::optional<rheg::Ref>, 2> retirements;
+  for (unsigned lane = 0; lane < 2; ++lane) {
+    const rheg::Ref ref{wb_sites[lane], wb_sequences[lane]};
+    CHECK(graph.nodes.contains(ref) == retiring_pc[lane].has_value());
+    if (!retiring_pc[lane]) continue;
+    CHECK(graph.nodes.at(ref).cycle == trace_cycle);
+    CHECK(graph.field(ref, "pc").unsigned_value() == *retiring_pc[lane]);
+    retirements[lane] = ref;
+    ++wb_sequences[lane];
+  }
   // Public MEM observations identify the live WB owner one cycle later.
   // Accepted descriptors enter an independent FIFO; PC is only a checked capture.
   if (admission.accepted) {
@@ -128,6 +145,8 @@ void check() {
       owner = candidate;
     }
     CHECK(owner);
+    if (retiring_pc[owner->lane] == owner->pc) owner->parent = *retirements[owner->lane];
+    owner->admission_cycle = trace_cycle;
     admitted.push_back(*owner);
     ++lanes[owner->lane]; ++admissions;
     ++admission_counts[owner->pc];
@@ -154,7 +173,7 @@ void check() {
     CHECK(!active && !admitted.empty());
     const auto owner = admitted.front(); admitted.pop_front();
     CHECK(owner.pc == dispatch.pc && owner.instruction == dispatch.instruction);
-    if (trace_cycle > graph.nodes.at(owner.parent).cycle + 1) ++queued;
+    if (trace_cycle > owner.admission_cycle) ++queued;
     if (released) ++replacements;
     active = owner; ++dispatches;
   }
@@ -176,10 +195,12 @@ void finish() {
   CHECK(admissions == dispatches && admitted.empty() && !active);
   CHECK(lanes[0] && lanes[1] && queued && replacements && stall);
   CHECK(complete);
+  CHECK(beats_from_mem && beats_from_wb);
   CHECK(std::any_of(beats.begin(), beats.end(), [](const auto &item) { return item.second > 1; }));
   std::cout << "Superscalar vector lineage: " << admissions << " admissions, "
             << sequence << " beats, " << stall << " stalls, " << queued
-            << " queued dispatches, " << replacements << " replacements\n";
+            << " queued dispatches, " << replacements << " replacements, "
+            << beats_from_mem << " MEM-parented and " << beats_from_wb << " WB-parented beats\n";
 }
 }
 

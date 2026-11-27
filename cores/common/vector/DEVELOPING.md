@@ -265,9 +265,15 @@ replacement, rather than the next dispatch offer. The backend captures only
 cursor's current owner. Memory sequencers receive the same observation bank;
 they must not resample a live descriptor during a checked slice or retry.
 These values feed event captures only, never functional controls or payloads.
-Forward the core's selected ISA string for disassembly. Validate labels and PC
-against scalar WB in regenerated vector benchmark traces, including owner reuse,
-and compare cycle counts to the unmodified run.
+Forward the core's selected ISA string for disassembly. A PC or owner number
+is not an occurrence ID. Trace execute and special reads against the live
+allocation; for memory, retain the descriptor through the dispatch head, checked
+slices, address cursor, and store row preparation. Keep returned bytes and packed
+store rows as the immediate data parents of load writes and store requests.
+To validate occurrence identity across slot reuse, run the
+[vec-memcpy owner query](../../../sims/tests/check-rv3wide-memcpy-owners.sql)
+after [event-tracks.sql](../../../sims/tests/event-tracks.sql) on a regenerated
+RV3Wide trace and compare cycles to the unmodified run.
 
 ## Implementation map
 

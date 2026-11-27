@@ -219,6 +219,8 @@ sync_circuit VectorFaultCheck(xlen :: XLen, vlen :: VectorLength, slots :: Pow2I
   def complete = (final_issue ||| (phase === CheckPhase.Finish)) & (outstanding === drained.as_bits().zext(MemoryCreditCount.packed_width()))
   authorized <== final_issue
   finished <== complete ||| stopped
+  describe_interface_retained_storage(start.fire(), finished, busy, ~name: "checked-descriptor")
+  describe_interface_contract(start, Array(prepare, launch, checked_element), "checked-descriptor", ~trace_model: interface_trace_retained(~outputs: 3, ~name: "checked-descriptor"))
   release_window <== finished & entry.checked.owns_window
   pc <== d.pc
   owner <== entry.owner
