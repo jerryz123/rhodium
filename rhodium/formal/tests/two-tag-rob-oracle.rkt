@@ -55,6 +55,21 @@
                        (=> (entry-done a) (bveq (entry-data a) (entry-data b)))))))))
 
 (module+ test
+  (require (only-in "../../../examples/formal/ordered-retirement.rspl" ordered_retirement)
+           (only-in "stall-replay.rhm" sample_events))
+  (test-case "each completion strobe reports its own generation and full word on the same edge"
+    (define view (ordered_retirement 8))
+    (define pins (hash "complete_gen_a" #f "result_a" #x81 "complete_gen_b" #t "result_b" #x3e
+                       "grant_a" #f "grant_b" #f "issue_gen" #f "retire.valid" #f
+                       "retire.ready" #f "retire.bits" #f "retire_result" 0))
+    (define (sample rst a b)
+      (for/hash ([(k v) (sample_events view (hash-set* pins "reset" rst "complete_a" a "complete_b" b))])
+        (values k v)))
+    (check-equal? (sample #f #f #f) (hash))
+    (check-equal? (sample #f #t #f) (hash "echo_a" #f "data_a" #x81))
+    (check-equal? (sample #f #f #t) (hash "echo_b" #t "data_b" #x3e))
+    (check-equal? (sample #f #t #t) (hash "echo_a" #f "data_a" #x81 "echo_b" #t "data_b" #x3e))
+    (check-equal? (sample #t #t #t) (hash "reset" #t)))
   (test-case "declared batch agrees with the former sparse Racket adapter on every directional pin sample"
     (define-values (source _monitor ins outs) (transaction_parts (TwoTagROB #:transaction_view #t)))
     (define raw (spec_snapshot source))

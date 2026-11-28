@@ -16,6 +16,7 @@ export:
   all_from(lib("rhodium/formal/spec-dsl.rhm")):
     except operand
   spec
+  sample_pin
   extend_leaf_transactions
   rename: monitor_view as monitor
   rename: boundary.combine_transactions as combine_transactions
@@ -575,6 +576,11 @@ defn.macro 'bind_physical_accessor $access($read)':
      expr.macro '$access($('$')path $('...'))':
        physical_access('$read', '$('$')path $('...')')
    »'
+
+/* A detached sampler knows the pin's direction and sort. Record its lexical path through
+   the same directional reader used to check the contract against an elaborated boundary. */
+expr.macro 'sample_pin($reader, $path ..., $sort ...)':
+  '$reader($(iterated_path('$path ...')), ($sort ...))'
 
 /* Compile a circuit-bound body to typed IR; evaluate each clause at its original lexical site. */
 defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ...) ($arr, ...): $line; ...':

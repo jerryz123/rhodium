@@ -388,14 +388,14 @@ check:
 check:
   block:
     spec for rtl.ParamProbe:
-      transactions transaction_view(ref_monitor, ["sample"], fun (read, _write): {"sample": Observed(read("bad", Bool))})
+      transactions transaction_view(ref_monitor, ["sample"], fun (read, _write): {"sample": Observed(sample_pin(read, bad, Bool))})
       observe bad = #false
     ParamProbe(elaborate(rtl.ParamProbe(0)).top)
   ~throws "transaction pin direction or type mismatch: bad"
 check:
   block:
     spec for rtl.ParamProbe:
-      transactions transaction_view(ref_monitor, ["sample"], fun (_read, write): {"sample": Observed(write("bad", Bits(1)))})
+      transactions transaction_view(ref_monitor, ["sample"], fun (_read, write): {"sample": Observed(sample_pin(write, bad, Bits(1)))})
       observe bad = #false
     ParamProbe(elaborate(rtl.ParamProbe(0)).top)
   ~throws "transaction pin direction or type mismatch: bad"

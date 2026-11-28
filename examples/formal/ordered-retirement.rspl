@@ -7,33 +7,39 @@ export ordered_retirement retirement_events
 
 /* A retirement is a non-reset handshake; its tag and payload are one observation. */
 fun retirement_events(input :: Function.of_arity(2), output :: Function.of_arity(2), w :: PosInt = 2):
-  def rst = input("reset", Bool)
-  def take = !rst && output("retire.valid", Bool) && input("retire.ready", Bool)
+  def rst = sample_pin(input, reset, Bool)
+  def take = !rst && sample_pin(output, retire.valid, Bool) && sample_pin(input, retire.ready, Bool)
   {"reset": ir.Observed(const(Bool, #true), rst),
-   "retired": ir.Observed(output("retire.bits", Bool), take),
-   "retired_value": ir.Observed(output("retire_result", Bits(w)), take)}
+   "retired": ir.Observed(sample_pin(output, retire.bits, Bool), take),
+   "retired_value": ir.Observed(sample_pin(output, retire_result, Bits(w)), take)}
 
 /* Decode one joint pre-edge sample. Only the four issued/retired fields belong to the
    cycle API; the monitor also needs reset and the two independent completion pulses. */
 fun ordered_events(input :: Function.of_arity(2), output :: Function.of_arity(2), w :: PosInt = 2):
   def word = Bits(w)
-  def rst = input("reset", Bool)
-  def grant_b = output("grant_b", Bool)
-  def grant = !rst && (output("grant_a", Bool) || grant_b)
-  def issued = {"issued": ir.Observed(grant_b, grant), "issued_gen": ir.Observed(output("issue_gen", Bool), grant)}
-  /* Each lane's generation and data are sampled together, before any issue or retirement update. */
-  fun lane(suffix :: String):
-    def present = !rst && input("complete_" ++ suffix, Bool)
-    {"echo_" ++ suffix: ir.Observed(input("complete_gen_" ++ suffix, Bool), present),
-     "data_" ++ suffix: ir.Observed(input("result_" ++ suffix, word), present)}
-  retirement_events(input, output, w) ++ issued ++ lane("a") ++ lane("b")
+  def rst = sample_pin(input, reset, Bool)
+  def grant_b = sample_pin(output, grant_b, Bool)
+  def grant = !rst && (sample_pin(output, grant_a, Bool) || grant_b)
+  /* A completion strobe qualifies both its generation and its data, regardless of the other tag. */
+  fun completion(strobe :: SpecExpr, generation :: SpecExpr, data :: SpecExpr):
+    def present = !rst && strobe
+    values(ir.Observed(generation, present), ir.Observed(data, present))
+  def values(echo_a, data_a) = completion(sample_pin(input, complete_a, Bool),
+                                          sample_pin(input, complete_gen_a, Bool),
+                                          sample_pin(input, result_a, word))
+  def values(echo_b, data_b) = completion(sample_pin(input, complete_b, Bool),
+                                          sample_pin(input, complete_gen_b, Bool),
+                                          sample_pin(input, result_b, word))
+  retirement_events(input, output, w) ++ {
+    "issued": ir.Observed(grant_b, grant), "issued_gen": ir.Observed(sample_pin(output, issue_gen, Bool), grant),
+    "echo_a": echo_a, "data_a": data_a, "echo_b": echo_b, "data_b": data_b}
 
 /* False denotes A; true denotes B. Membership comes from the live issue history,
    not a copy of the implementation's busy bits. */
 fun ordered_retirement(w :: PosInt = 2):
   monitor:
     sample fun (read, output): ordered_events(read, output, w)
-    publish ["issued", "issued_gen", "retired", "retired_value"]
+    publish [issued, issued_gen, retired, retired_value]
     batch reset = present(reset)
     batch grant = present(issued)
     batch grant_tag: Bool = payload(issued) when grant

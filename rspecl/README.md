@@ -134,6 +134,14 @@ indexed events share one name space; duplicate labels are rejected.
 The [Arbiter spec](../examples/formal/arbiter.rspl) samples requests and
 grant outputs separately so its priority check can detect a spurious grant.
 
+A reusable monitor can also be constructed before it has an RTL instance.
+In its `sample fun (input, output): ...` callback, use
+`sample_pin(input, complete_gen_a, Bool)` or `sample_pin(output, retire.bits, Bool)`.
+The reader supplies the direction and the last argument supplies the expected
+sort; binding the monitor checks both against the RTL. The
+[ordered-retirement monitor](../examples/formal/ordered-retirement.rspl) uses
+this form so the ROB and its logger share the same completion pin mapping.
+
 For independent ready/valid handshakes, name the endpoints directly:
 
 ```rhombus
