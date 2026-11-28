@@ -70,7 +70,7 @@ sync_circuit SuperscalarL1D(cache :: CacheConfig, ~banked_l1d: banked_l1d :: Boo
 
   def storage_module:
     if banked_l1d
-    | BankedL1DCache(xlen, cache, ~chi: config, ~context: Tag, ~beat_bytes: beat_bytes)
+    | BankedL1DCache(xlen, cache, ~chi: config, ~context: Tag, ~beat_bytes: beat_bytes, ~mshr_count: 4)
     | L1DCache(xlen, cache, ~chi: config, ~context: Tag, ~service_queue_depth: service_queue_depth, ~beat_bytes: beat_bytes)
   inst storage(storage_module)
   storage.node_id <== node_id
