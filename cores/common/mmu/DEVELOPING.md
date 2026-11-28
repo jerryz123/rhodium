@@ -60,8 +60,12 @@ Preserve these invariants when extending the components:
   host request goes directly to Complete. CheckAddress and PTE phases may
   prepare an outcome before it is valid. Only entry into Complete publishes
   it, and its payload must then hold under backpressure. Only a nested G walk
-  needs a separate GPA:
-  the address of a VS PTE or the final VS translation. The saved VS frame holds
+  needs a separate GPA: the address of a VS PTE or the final VS translation.
+  Reconstruct both completion GPAs from the held lookup, phase, and nested
+  GPA, not the live request or PTE. A VS fault reports zero in the trap GPA;
+  a G-stage fault preserves the full walk address, even if it exceeds the
+  translation range. Keep the PTE-derived final PA in the registered outcome.
+  The saved VS frame holds
   table PPN, level, and inherited global status, not a copy of the original VA.
   Use the walker's lookup for fill and fault correlation rather than recapturing
   its request on the same edge. Use

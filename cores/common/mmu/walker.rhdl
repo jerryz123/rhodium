@@ -37,6 +37,14 @@ bundle RiscvPageWalkFrame():
   level: Bits(2)
   global_mapping: Bool
 
+/* Captures the PTE-dependent outcome; the held walk supplies the completion's address provenance. */
+bundle RiscvPageWalkResult():
+  physical_address: Bits(56)
+  page_size: Sv39PageSize
+  vs_leaf: Sv39Pte()
+  g_leaf: Sv39Pte()
+  fault: RiscvTranslationFault
+
 /* Walks host Sv39 or nested VS/Sv39x4 using one active frame and a saved VS continuation.
    Cancellation suppresses completion but drains an already accepted PTE read. */
 sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false,
@@ -67,7 +75,7 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false,
   reg vs_leaf(Sv39Pte())
   reg memory_address(Bits(64))
   reg memory_pbmt(PageMemoryType)
-  reg result(RiscvTlbMapping())
+  reg result(RiscvPageWalkResult())
 
 
   /* Public offers and accepted-response ownership
@@ -81,6 +89,11 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false,
   def idle = state === RiscvPageWalkState.Idle
   walking.ready <== idle & !cancel
   completion.valid <== (state === RiscvPageWalkState.Complete) & !cancel
+  // The accepted lookup, nested GPA and phase all hold through the completion transfer.
+  def virtual_stage = phase === RiscvPageWalkPhase.Virtual
+  def implicit_access = phase === RiscvPageWalkPhase.GuestPte
+  def nested_g_stage = operation.virtualized & !virtual_stage & (operation.context.vs_mode === RiscvVSMode.Sv39)
+  def walk_address = mux(nested_g_stage, nested_gpa, operation.virtual_address)
   // A host leaf no longer needs the table that supplied it. Reconstruct its
   // address from the held frame and lookup, never from the next memory response.
   def host_base_ppn = sv39_base_ppn(frame.table_ppn, result.page_size)
@@ -88,12 +101,20 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false,
     result.fault =/= RiscvTranslationFault.None: Bits(56)(0)
     operation.context.vs_mode === RiscvVSMode.Sv39: sv39_physical_address(operation.virtual_address, host_base_ppn, result.page_size)
 
-  completion.bits <== result.updated(
-    ~virtual_address: operation.virtual_address,
-    ~access: operation.access,
-    ~physical_address: mux(operation.virtualized, result.physical_address, host_address),
-    ~guest_physical_address: mux(operation.virtualized, result.guest_physical_address, host_address.zext(64))
-  )
+  def details = RiscvGuestFault():
+    guest_virtual_address: operation.virtualized
+    guest_physical_address: mux(virtual_stage, Bits(64)(0), walk_address)
+    access: mux(implicit_access, RiscvGuestFaultAccess.PageTableRead, RiscvGuestFaultAccess.Explicit)
+  completion.bits <== RiscvTlbMapping():
+    virtual_address: operation.virtual_address
+    access: operation.access
+    physical_address: mux(operation.virtualized, result.physical_address, host_address)
+    page_size: result.page_size
+    guest_physical_address: mux(operation.virtualized, walk_address, host_address.zext(64))
+    vs_leaf: result.vs_leaf
+    g_leaf: result.g_leaf
+    fault: result.fault
+    fault_details: details
 
   memory.request.valid <== (state === RiscvPageWalkState.Request) & !cancel
   def request_fire = request.fire()
@@ -111,12 +132,6 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false,
 
   /* Current traversal and PTE validation */
 
-  def virtual_stage = phase === RiscvPageWalkPhase.Virtual
-  def implicit_access = phase === RiscvPageWalkPhase.GuestPte
-  // Only G translation on behalf of a paged VS walk changes the input address.
-  // A G-only walk translates the original address directly.
-  def nested_g_stage = operation.virtualized & !virtual_stage & (operation.context.vs_mode === RiscvVSMode.Sv39)
-  def walk_address = mux(nested_g_stage, nested_gpa, operation.virtual_address)
   def guest_bare = !operation.virtualized ||| (operation.context.g_mode === RiscvGMode.Bare)
   def pte = memory.response.bits.into(Sv39Pte())
   def leaf = pte.sv39_leaf()
@@ -159,7 +174,6 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false,
   def checking_address = state === RiscvPageWalkState.CheckAddress
   def preparing_read = state === RiscvPageWalkState.PrepareRead
   def zero_leaf = Bits(64)(0).into(Sv39Pte())
-  def empty_mapping :: RiscvTlbMapping() = literal(RiscvTlbMapping(), 0)
   def vs_pte = pte.updated(~global_mapping: frame.global_mapping ||| pte.global_mapping)
   def g_pte = pte.updated(~global_mapping: Bool(#false))
 
@@ -170,30 +184,26 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false,
       level: Bits(2)(2)
       global_mapping: Bool(#false)
 
-  /* Captures the traversal outcome and guest-fault provenance. The accepted lookup
-     supplies the completion VA and access kind. */
-  fun outcome(fault :: RiscvTranslationFault, physical :: Bits(56), guest_leaf :: Sv39Pte()) :~ RiscvTlbMapping():
-    def details = RiscvGuestFault():
-      guest_virtual_address: operation.virtualized
-      guest_physical_address: mux(virtual_stage, Bits(64)(0), walk_address)
-      access: mux(implicit_access, RiscvGuestFaultAccess.PageTableRead, RiscvGuestFaultAccess.Explicit)
-
-    empty_mapping.updated(
-      ~physical_address: physical,
-      ~page_size: mux(!operation.virtualized & virtual_stage, page_size, Sv39PageSize.Page4KiB),
-      ~guest_physical_address: mux(operation.virtualized, walk_address, physical.zext(64)),
-      ~vs_leaf: mux(!operation.virtualized & virtual_stage, vs_pte, vs_leaf),
-      ~g_leaf: guest_leaf,
-      ~fault: fault,
-      ~fault_details: details
-    )
+  /* Captures the physical result, leaf snapshots, page size, and fault before the PTE bus changes. */
+  fun outcome(fault :: RiscvTranslationFault, physical :: Bits(56), guest_leaf :: Sv39Pte()) :~ RiscvPageWalkResult():
+    RiscvPageWalkResult():
+      physical_address: physical
+      page_size: mux(!operation.virtualized & virtual_stage, page_size, Sv39PageSize.Page4KiB)
+      vs_leaf: mux(!operation.virtualized & virtual_stage, vs_pte, vs_leaf)
+      g_leaf: guest_leaf
+      fault: fault
 
 
   /* Result capture
      Prepare the candidate for each phase; only entry into Complete publishes it.
      Idle includes the admission edge. Neither a stalled completion nor Drain writes. */
   when idle:
-    result <== empty_mapping.updated(~fault: RiscvTranslationFault.PageFault)
+    result <== RiscvPageWalkResult():
+      physical_address: Bits(56)(0)
+      page_size: Sv39PageSize.Page4KiB
+      vs_leaf: zero_leaf
+      g_leaf: zero_leaf
+      fault: RiscvTranslationFault.PageFault
   elsewhen checking_address:
     result <== mux(bad_address, outcome(address_fault, Bits(56)(0), zero_leaf),
                    outcome(RiscvTranslationFault.None, walk_address[0..56], zero_leaf))

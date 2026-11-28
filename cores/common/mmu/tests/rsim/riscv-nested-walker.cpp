@@ -127,6 +127,39 @@ void cancel_now() {
   eval();
 }
 
+// The completion must be independent of an unaccepted request and of the
+// now-unowned PTE bus, including on the edge that finally transfers it.
+void finish_guest_under_stall(unsigned expected_fault, std::uint64_t va, unsigned kind,
+                              std::uint64_t pa, std::uint64_t mapping_gpa, std::uint64_t trap_gpa,
+                              bool implicit = false) {
+  for (unsigned n = 0; !completed && n < 60; ++n)
+    tick_model();
+  const auto held_vs_leaf = vs_leaf, held_g_leaf = g_leaf;
+  const auto check = [&] {
+    CHECK(completed && !command_ready && !memory_valid);
+    CHECK(result_virtual == va && result_access == kind && fault == expected_fault);
+    CHECK(result_address == pa && result_guest == mapping_gpa);
+    CHECK(gva && fault_guest == trap_gpa && implicit_read == implicit);
+    CHECK(vs_leaf == held_vs_leaf && g_leaf == held_g_leaf);
+  };
+  for (unsigned i = 0; i < 4; ++i) {
+    address = ~va - i;
+    access = (kind + i + 1) % 3;
+    virtualized = vs_mode = i & 1;
+    g_mode = !vs_mode;
+    pte = entry(0xabc00 + i, (i & 1) ? VW : GR);
+    command_valid = (i == 3);
+    completion_ready = (i == 3);
+    eval();
+    check();
+    tick_model();
+  }
+  command_valid = completion_ready = 0;
+  virtualized = 1;
+  eval();
+  CHECK(command_ready && !completed);
+}
+
 void stall_host_fault(std::uint64_t va, std::uint8_t kind,
                       std::uint64_t waiting_va, std::uint8_t waiting_kind) {
   launch(va, kind);
@@ -331,7 +364,7 @@ int main() {
     defaults();
     vs_mode = 1;
     launch(UINT64_C(549755813888), LOAD);
-    finish(PAGE, UINT64_C(549755813888), LOAD, 0);
+    finish_guest_under_stall(PAGE, UINT64_C(549755813888), LOAD, 0, UINT64_C(549755813888), 0);
 
     defaults();
     vs_mode = 1;
@@ -360,10 +393,13 @@ int main() {
     if (((g_leaf >> 5) & 1) || vs_leaf != 0)
       fail(1, "G global bool must be ignored");
     finish(NONE, UINT64_C(1099511632436), LOAD, UINT64_C(0x222234));
-    defaults();
-    g_mode = 1;
-    launch(UINT64_C(2199023255552), LOAD);
-    finish(GUEST, UINT64_C(2199023255552), LOAD, 0, UINT64_C(2199023255552));
+    for (unsigned high_bit : {41u, 63u}) {
+      defaults();
+      g_mode = 1;
+      const auto bad_gpa = (UINT64_C(1) << high_bit) | 0x1234;
+      launch(bad_gpa, LOAD);
+      finish_guest_under_stall(GUEST, bad_gpa, LOAD, 0, bad_gpa, bad_gpa);
+    }
     defaults();
     g_mode = 1;
     g_root = 5;
@@ -374,7 +410,8 @@ int main() {
     g_mode = 1;
     vs_root = UINT64_C(536870912);
     launch(UINT64_C(0x1234), LOAD);
-    finish(GUEST, UINT64_C(0x1234), LOAD, 0, UINT64_C(2199023255552), 1);
+    constexpr auto implicit_gpa = UINT64_C(1) << 41;
+    finish_guest_under_stall(GUEST, 0x1234, LOAD, 0, implicit_gpa, implicit_gpa, true);
 
     defaults();
     vs_mode = 1;
@@ -388,7 +425,7 @@ int main() {
     translate_g(UINT64_C(0x3008), GR);
     reply(UINT64_C(0x103008), entry(5, VW));
     translate_g(UINT64_C(0x5234), GW);
-    finish(NONE, UINT64_C(0x1234), STORE, UINT64_C(0x105234));
+    finish_guest_under_stall(NONE, 0x1234, STORE, 0x105234, 0x5234, 0x5234);
     if (reads != 15)
       fail(1, "nested walk bypassed a stage");
 
