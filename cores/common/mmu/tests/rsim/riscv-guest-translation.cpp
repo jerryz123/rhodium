@@ -493,6 +493,19 @@ int main() {
     finish(NONE, UINT64_C(0x5679), LOAD, UINT64_C(0x40005679),
            UINT64_C(0x5679));
 
+    // A warm compact tag must not hide the walker's original fault address.
+    constexpr uint64_t bad_vs = (UINT64_C(1) << 48) | 0x5679;
+    launch(bad_vs, LOAD);
+    finish(PAGE, bad_vs, LOAD);
+    vs_mode = 0;
+    launch(0x5679, LOAD);
+    reply(0x4000, entry(0x40000, GR));
+    finish(NONE, 0x5679, LOAD, 0x40005679, 0x5679);
+    constexpr uint64_t bad_gpa = (UINT64_C(1) << 41) | 0x5679;
+    launch(bad_gpa, LOAD);
+    finish(GUEST, bad_gpa, LOAD, 0, bad_gpa);
+    vs_mode = 1;
+
     reset = 1;
     tick_model();
     falling();

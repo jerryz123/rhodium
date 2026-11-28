@@ -1,4 +1,4 @@
-// Checks final physical bounds independently of guest fault provenance on both TLB ports.
+// Checks root-tagged address matching, final physical bounds, and guest fault provenance on both ports.
 // SPDX-License-Identifier: Apache-2.0
 #include "test.hpp"
 
@@ -19,7 +19,7 @@ int main() {
       auto &r = fill_in.pbits.presult;
       const auto offset = lookup.pvirtual_uaddress & 0xfff;
       r.pphysical_uaddress = address | offset;
-      r.pguest_uphysical_uaddress = gpa | offset;
+      r.pguest_uphysical_uaddress = lookup.pcontext.pvs_umode ? (gpa | offset) : lookup.pvirtual_uaddress;
       r.ppage_usize = size;
       auto &vs = r.pvs_uleaf;
       vs.pvalid = vs.pread = vs.pwrite = vs.paccessed = vs.pdirty = 1;
@@ -62,5 +62,51 @@ int main() {
     eval();
     CHECK(hit && !translation.pfault && translation.pphysical_uaddress == 0xfffff);
     CHECK(probe_hit && probe_demand_fault && probe_fault && probe_translation.pfault == access_fault);
+
+    auto check_ports = [&](uint64_t demand, uint64_t hint, bool demand_hit, bool hint_hit) {
+      lookup.pvirtual_uaddress = demand;
+      probe.pvirtual_uaddress = hint;
+      eval();
+      CHECK(hit == demand_hit && probe_raw_hit == hint_hit && probe_hit == hint_hit);
+      if (demand_hit) CHECK(!translation.pfault && translation.pvirtual_uaddress == demand);
+      if (hint_hit) CHECK(!probe_fault && !probe_translation.pfault && probe_translation.pvirtual_uaddress == hint);
+    };
+    // Keep each port independent: a noncanonical alias misses even when its
+    // low 41 bits match an upper-half Sv39 page hit on the other port.
+    constexpr auto invalid_va = va ^ (UINT64_C(1) << 48);
+    for (bool guest : {false, true}) {
+      invalidate_all = 1; tick_model(); invalidate_all = 0;
+      lookup.pvirtualized = guest;
+      lookup.pcontext.pvs_umode = 1;
+      lookup.pcontext.pg_umode = guest;
+      lookup.pvirtual_uaddress = va;
+      probe = lookup;
+      install(pa, 0);
+      check_ports(va + 0x10, invalid_va + 0xa8, true, false);
+      CHECK(translation.pphysical_uaddress == pa + 0x10);
+      check_ports(invalid_va + 0x10, va + 0xa8, false, true);
+      CHECK(probe_physical_address == pa + 0xa8);
+    }
+
+    // VS Bare + Sv39x4: bit 40 distinguishes two resident pages; bit 41
+    // makes the request invalid, not an alias for either one.
+    invalidate_all = 1; tick_model(); invalidate_all = 0;
+    constexpr uint64_t low = 0x3456000, high = low | (UINT64_C(1) << 40);
+    constexpr uint64_t outside = UINT64_C(1) << 41, high_pa = 0xcd000;
+    lookup.pcontext.pvs_umode = 0;
+    lookup.pvirtual_uaddress = low;
+    probe = lookup;
+    install(pa, 0);
+    lookup.pvirtual_uaddress = high;
+    install(high_pa, 0);
+    check_ports(low + 0x10, high + 0xa8, true, true);
+    CHECK(translation.pphysical_uaddress == pa + 0x10 && probe_physical_address == high_pa + 0xa8);
+    check_ports(high + 0x10, low + 0xa8, true, true);
+    CHECK(translation.pphysical_uaddress == high_pa + 0x10 && probe_physical_address == pa + 0xa8);
+    check_ports(low | outside, high, false, true);
+    // Even a synthetic successful fill for the invalid alias cannot overwrite low.
+    install(high_pa, 0);
+    check_ports(low, high | outside, true, false);
+    CHECK(translation.pphysical_uaddress == pa);
   });
 }

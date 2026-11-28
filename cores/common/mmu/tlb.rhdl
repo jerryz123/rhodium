@@ -13,13 +13,20 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
-/* Root-tagged host/guest mapping. Only the final physical page is bounded by
-   the platform map; the guest page remains intact for fault reporting. */
+/* Check the full input of the first paged stage before using a compact tag.
+   With both stages Bare, translation bypasses the bank entirely. */
+fun tlb_tag_address_valid(request :: RiscvTlbLookup()) :~ Bool:
+  mux(request.context.vs_mode === RiscvVSMode.Sv39,
+      request.virtual_address.sv39_canonical(),
+      request.virtualized & (request.context.g_mode === RiscvGMode.Sv39x4) & sv39x4_address_valid(request.virtual_address))
+
+/* Root-tagged host/guest mapping. The VPN covers VA[40:12] for Sv39x4;
+   the independent guest PPN remains intact for fault reporting. */
 bundle RiscvTlbEntry(ppn_width :: Int.in(1, 44) = 44):
   valid: Bool
   virtualized: Bool
   page_size: Sv39PageSize
-  vpn: Bits(52)
+  vpn: Bits(29)
   ppn: Bits(ppn_width)
   outside_map: Bool
   guest_ppn: Bits(52)
@@ -27,13 +34,17 @@ bundle RiscvTlbEntry(ppn_width :: Int.in(1, 44) = 44):
   vs_leaf: Sv39Pte()
   g_leaf: Sv39Pte()
 
-  /* Match the page and translation identity, including HS MXR for implicit
-     G-stage PTE reads. Current privilege, SUM, and VS MXR are rechecked. */
+  /* Standalone match includes the same full-address eligibility as the associative bank. */
   method matches(entry, request :: RiscvTlbLookup()) :: Bool:
+    tlb_tag_address_valid(request) & entry.matches_tag(request)
+
+  /* Compare resident tag and context; the bank qualifies all ways with one
+     address check per port. Composed mappings always have 4 KiB granularity. */
+  method matches_tag(entry, request :: RiscvTlbLookup()) :: Bool:
     def left = entry.context
     def right = request.context
-    def host_page = request.virtual_address.sv39_canonical() & sv39_same_page(entry.vpn[0..27] ++ Bits(12)(0), request.virtual_address[0..39], entry.page_size)
-    def same_page = mux(entry.virtualized, entry.vpn === request.virtual_address[12..64], host_page)
+    def host_page = sv39_same_page(entry.vpn[0..27] ++ Bits(12)(0), request.virtual_address[0..39], entry.page_size)
+    def same_page = mux(entry.virtualized, entry.vpn === request.virtual_address[12..41], host_page)
     def same_modes = (left.vs_mode === right.vs_mode) & (left.g_mode === right.g_mode)
     def same_roots = (left.vs_root_ppn === right.vs_root_ppn) & (left.g_root_ppn === right.g_root_ppn)
     def same_controls = (left.vs_pbmte === right.vs_pbmte) & (left.g_pbmte === right.g_pbmte) & (left.hs_mxr === right.hs_mxr)
@@ -98,15 +109,18 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8, ~host_root_epoch: h
   reg entries(Bank, ~init: literal(Bank, 0))
   reg replacement(~init: Bits(index_bits)(0))
 
-  /* Matches all three lookup paths against the same resident identity. Only a
-     host Sv39 request can match a compact entry, even when high VA bits alias. */
+  /* Compare a single way; the port independently qualifies the full address. */
   fun entry_matches(index :: Nat, request :: RiscvTlbLookup()) :~ Bool:
     if host_root_epoch
     | block:
         def entry = entries[index].into(Entry)
         def same_page = sv39_same_page(entry.vpn ++ Bits(12)(0), request.virtual_address[0..39], entry.page_size)
-        entry.valid & !request.virtualized & (request.context.vs_mode === RiscvVSMode.Sv39) & (entry.pbmte === request.context.vs_pbmte) & request.virtual_address.sv39_canonical() & same_page
-    | entries[index].into(Entry).matches(request)
+        entry.valid & !request.virtualized & (request.context.vs_mode === RiscvVSMode.Sv39) & (entry.pbmte === request.context.vs_pbmte) & same_page
+    | entries[index].into(Entry).matches_tag(request)
+
+  /* Host-epoch entries only admit Sv39; the root-tagged bank also admits G-only addresses. */
+  fun address_valid(request :: RiscvTlbLookup()) :~ Bool:
+    if host_root_epoch | request.virtual_address.sv39_canonical() | tlb_tag_address_valid(request)
 
   def matches = vec(for List (index in 0..entry_count): entry_matches(index, lookup))
   def selected_index = priority_encoder(matches)
@@ -144,7 +158,7 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8, ~host_root_epoch: h
 
   // Invalidation wins at the state-update edge. Do not feed a WB-owned fence
   // back through hit/readiness into the retirement decision that creates it.
-  hit <== bare ||| matches.any()
+  hit <== bare ||| (address_valid(lookup) & matches.any())
   translation <== RiscvTlbMapping():
     virtual_address: lookup.virtual_address
     access: lookup.access
@@ -178,7 +192,7 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8, ~host_root_epoch: h
   // The SAME access class must be allowed by both stages, not merely some
   // access in each stage independently (e.g. VS execute-only + G read-only).
   def probe_permissions = vec(for List (kind in [Sv39Access.Fetch, Sv39Access.Load, Sv39Access.Store]): probe_allowed(kind))
-  probe_raw_hit <== probe_bare ||| probe_matches.any()
+  probe_raw_hit <== probe_bare ||| (address_valid(probe) & probe_matches.any())
   probe_hit <== probe_raw_hit & !invalidate_all
   // With both stages Bare, the original address must fit before truncation to the physical port.
   def probe_bare_overflow = probe_bare & !riscv_bare_address_fits(probe.virtual_address)
@@ -250,7 +264,7 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8, ~host_root_epoch: h
       valid: Bool(#true)
       virtualized: fill.bits.request.virtualized
       page_size: fill.bits.result.page_size
-      vpn: fill.bits.request.virtual_address[12..64]
+      vpn: fill.bits.request.virtual_address[12..41]
       ppn: ppn
       outside_map: base_outside
       guest_ppn: fill.bits.result.guest_physical_address[12..64]
@@ -266,8 +280,9 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8, ~host_root_epoch: h
     | assert(!fill.bits.request.virtualized & (fill.bits.request.context.vs_mode === RiscvVSMode.Sv39), "host_tlb_fills_only_host_sv39")
     | #void
 
-    entries <== entries.updated(fill_index, next_entry)
-    replacement <== mux(fill_matches.any(), replacement, wrap_increment(replacement, entry_count))
+    when (address_valid(fill.bits.request)):
+      entries <== entries.updated(fill_index, next_entry)
+      replacement <== mux(fill_matches.any(), replacement, wrap_increment(replacement, entry_count))
 
 /* Projects the shared bank onto host-only ports without introducing a second entry store. */
 sync_circuit RiscvTlb(entry_count :: Pow2Int = 8):

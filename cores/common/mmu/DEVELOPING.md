@@ -74,6 +74,11 @@ Preserve these invariants when extending the components:
 - Select the compact host bank only when root writes invalidate both banks
   and cancel outstanding walks. Test a root change while an old PTE response
   is in flight; the next walk of the same VA must start at the new root.
+- The root-tagged bank stores input address bits 40:12. Qualify each port
+  using its full address: signed-canonical Sv39 for host/VS paging, unsigned
+  41-bit GPA for G-only Sv39x4. Host superpages mask VPN bits by page size;
+  composed guest entries match individual 4 KiB pages. A malformed address
+  must miss even if all retained bits match. Keep the full request for the walker.
 - In both entry formats, bound only the final physical PPN using all mapped
   regions, not just cacheable RAM. Never derive the guest PPN from it.
   Record overflow from the normalized page base at fill; the initiating
