@@ -6,6 +6,9 @@ import lib("rhodium/frontend/support/clocking.rhm").ambient_reset_register
 import lib("flow/main.rhdl") open
 import "queued-fork.rhdl".QueuedFork
 
+/* Name the per-lane receipt register in the elaborated parent. */
+fun due_site(i :: Nat): "due_" ++ to_string(i)
+
 /* Pulse when every outstanding copy of the old word transfers, even on a replacement edge. */
 sync_circuit BroadcastReceipt(n :: PosInt = 2, width :: PosInt = 2, ~queued: queued :: Boolean = #false):
   interface ingress(Decoupled(Bits(width)), ~role: consumer)
@@ -17,11 +20,11 @@ sync_circuit BroadcastReceipt(n :: PosInt = 2, width :: PosInt = 2, ~queued: que
   def mutable all_done = Bool(#true)
   for (i in 0..n):
     fanout.egress[i] |> egress[i]
-    def due = ambient_reset_register("due_" ++ to_string(i), Bool, Bool(#false))
+    def due = ambient_reset_register(due_site(i), Bool, Bool(#false))
     def delivered = egress[i].fire()
     due <== ingress.fire() ||| (due & !delivered)
     any_due := any_due ||| due
     all_done := all_done & (!due ||| delivered)
   receipt <== !reset_active().into(Bool) & any_due & all_done
 
-export BroadcastReceipt
+export BroadcastReceipt due_site

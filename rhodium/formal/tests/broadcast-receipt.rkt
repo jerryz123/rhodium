@@ -97,6 +97,16 @@
         (check-equal? (take bad 4) (map (lambda (e) (list e #t)) (take events 4)))
         (check-equal? (last bad) (list (hash-remove (list-ref events 4) "pulse") #f)))))
 
+  (for ([top (list single_direct single_queued)] [queued? '(#f #t)])
+    (test-case "the only recipient is also the last, including across replacement"
+      (define rows '((#t #f 0 #f) (#f #t 0 #f) (#f #t 1 #f)
+                     (#f #t 1 #t) (#f #t 1 #f) (#f #f 0 #t)))
+      (define last-a (hash "lane0" 0 "pulse" #t))
+      (define events (list (hash "reset" #t) (hash "accepted" 0) (hash)
+                           (if queued? last-a (hash-set last-a "accepted" 1))
+                           (if queued? (hash "accepted" 1) (hash)) (hash "lane0" 1 "pulse" #t)))
+      (check-equal? (replay top (view top) rows) (map (lambda (e) (list e #t)) events))))
+
   (for ([top (list wide_direct wide_queued)] [queued? '(#f #t)])
     (test-case "three independent deliveries pulse only on the last; wide replacement survives"
       (define rows '((#t #f 0 #f #f #f) (#f #t 129 #f #f #f)

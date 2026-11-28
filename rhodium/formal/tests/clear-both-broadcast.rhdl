@@ -25,10 +25,11 @@ sync_circuit ClearBothBroadcast():
 
 fun broadcast_top(count :: PosInt, width :: PosInt): elaborate(Broadcast(Bits(width), count)).top
 def good_top = broadcast_top(2, 2)
-def queued_top = elaborate(QueuedFork()).top
+fun queued_fork_top(count :: PosInt, width :: PosInt): elaborate(QueuedFork(count, width)).top
+def queued_top = queued_fork_top(2, 2)
 def bad_top = elaborate(ClearBothBroadcast()).top
 def bad_root = bad_top.name
 fun cycle_row(model, old, inputs):
   def edge = step_spec(model, old || model.initial, inputs)
   values(edge.next_state, edge.events)
-export good_top queued_top bad_top bad_root cycle_row broadcast_top
+export good_top queued_top bad_top bad_root cycle_row broadcast_top queued_fork_top

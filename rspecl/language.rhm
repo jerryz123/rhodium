@@ -24,6 +24,8 @@ export:
     rename: boundary.Endpoint as Endpoint
   rename: boundary.ready_valid_events as ready_valid_events
   rename: boundary.rv_transfers as rv_transfers
+  rename: boundary.event_family as event_family
+  rename: boundary.history_family as history_family
   rename: boundary.rv_pins as rv_pins
   rename: boundary.transaction_view as transaction_view
 
@@ -143,7 +145,8 @@ meta:
       'def $id:
          def type = $sort
          def seed = $start
-         for List (key in ($names :: List.of(String))):
+         for List (ref in ($names :: List)):
+           def key = boundary.history_key(ref)
            $(add_state('key', 'type'))
            $(add_initial('key', 'seed'))
            ir.state_ref(key, type)'
@@ -259,7 +262,7 @@ expr.macro 'monitor_view: $line; ...':
         'def $id:
            def $k = ($key ...)
            $(add_input(k, 'Bool'))
-           $(add_binding(k, 'boundary.Presence($event ...)'))
+           $(add_binding(k, 'boundary.Presence(boundary.event_key($event ...))'))
            ir.input_ref($k, Bool)'
     | 'batch $(id :: Identifier)($key ...): $sort ... = payload($event ...) when $(gate :: Identifier)':
         def k = Syntax.make_temp_id("batch_key")
@@ -268,7 +271,7 @@ expr.macro 'monitor_view: $line; ...':
            def $k = ($key ...)
            def $t = ($sort ...)
            $(add_input(k, t))
-           $(add_binding(k, 'boundary.Payload(($event ...), $(gate) . datum)'))
+           $(add_binding(k, 'boundary.Payload(boundary.event_key($event ...), $(gate) . datum)'))
            ir.input_ref($k, $t)'
     | 'guarantee ($label ...) = $rhs ...':
         loop_goals := #true
@@ -308,6 +311,9 @@ expr.macro 'monitor_view: $line; ...':
           | ~else: 'operand($rhs ...)'
         record(guarantees, key, predicate, clause)
     | 'sample $s ...': record(attachment, "sample", '($s ...)', clause)
+    | 'publish [$(entry :: Group), ...] ++ $family ...':
+        let [key, ...] = [entry, ...].map(published_name)
+        record(attachment, "publish", '[$key, ...] ++ ($family ...)', clause)
     | 'publish [$(entry :: Group), ...]':
         let [key, ...] = [entry, ...].map(published_name)
         record(attachment, "publish", '[$key, ...]', clause)
@@ -324,7 +330,7 @@ expr.macro 'monitor_view: $line; ...':
      ...
      boundary.transaction_view(monitor_model($(all_inputs(inputs)), $(all_states(states)), $(all_initial(initial)),
                                              $(all_goals(guarantees)), $(all_updates(updates))),
-                               $(attachment["publish"]), $(attachment["sample"]), ~bindings: $(all_bindings(bindings)))'
+                               ($(attachment["publish"])).map(boundary.event_key), $(attachment["sample"]), ~bindings: $(all_bindings(bindings)))'
 
 /* Lower implementation-state hints and separate pin-dependent obligations to ordinary spec IR. */
 expr.macro 'refined_view($view, $parent, $defer): $line; ...':
@@ -346,9 +352,12 @@ expr.macro 'refined_view($view, $parent, $defer): $line; ...':
   /* Read named histories and local registers at the checked cut, not from a child's RTL. */
   fun projected(line :: Syntax):
     match line
+    | 'history $(id :: Identifier) from $(site :: Identifier)[$field ...]: $t ...':
+        unless cuts.has_key(field_name(site)) | syntax_meta.error("history must name the declared child", site)
+        projected('history $id from ($(field_name(site)), $field ...): $t ...')
     | 'history $(id :: Identifier) from ($site ..., $field ...): $t ...':
         'def $id:
-           def key = "history." ++ ($site ...) ++ "." ++ ($field ...)
+           def key = "history." ++ ($site ...) ++ "." ++ boundary.history_key($field ...)
            def sort = ($t ...)
            $(add_source('key', 'sort'))
            ir.input_ref(key, sort)'
@@ -358,7 +367,7 @@ expr.macro 'refined_view($view, $parent, $defer): $line; ...':
            def sort = ($t ...)
            $(add_source('field', 'sort'))
            ir.input_ref(field, sort)'
-    | 'relate ($key ...) = $rhs ...': add_relation('($key ...)', observation('$rhs ...'))
+    | 'relate ($key ...) = $rhs ...': add_relation('boundary.history_key($key ...)', observation('$rhs ...'))
     | 'invariant ($key ...) = $rhs ...': add_invariant('($key ...)', 'ir.Observed(operand($rhs ...))')
     | ~else: line
   /* Namespace IR references by provenance; author expressions use ordinary lexical bindings. */
@@ -387,6 +396,8 @@ expr.macro 'refined_view($view, $parent, $defer): $line; ...':
         def k = "history." ++ field_name(child) ++ "." ++ field_name(field)
         def t = record(sources, k, '($t ...)', clause)
         emit('def $n = ir.input_ref($k, $t)')
+    | 'history $(n :: Identifier) from $(child :: Identifier)[$field ...]: $t ...':
+        emit(projected(clause))
     | 'local ($(n :: Identifier), ...): $t ...':
         for (id in [n, ...]): source(id, '($t ...)', "local", sources, clause)
     | 'required ($(n :: Identifier), ...): $t ...':
@@ -440,7 +451,7 @@ expr.macro 'cycle_relation($cycle): $line; ...':
   /* Project each named public field using the old cycle history. */
   fun project(line :: Syntax):
     match line
-    | 'relate ($key ...) = $rhs ...': add_relation('($key ...)', observation('$rhs ...'))
+    | 'relate ($key ...) = $rhs ...': add_relation('boundary.history_key($key ...)', observation('$rhs ...'))
     | ~else: line
   for (clause in [line, ...]):
     match clause
@@ -481,15 +492,15 @@ expr.macro 'rtl_relation($cycle, $ports, $sync): $line; ...':
   /* Repeated reads of the same physical pin are harmless; each read must resolve on this boundary. */
   fun physical_line(line :: Syntax):
     match line
-    | 'event ($key ...) = $rhs ...': add_transfer('($key ...)', observation('$rhs ...'))
-    | 'relate ($key ...) = $rhs ...': add_relation('($key ...)', 'ir.Observed(operand($rhs ...))')
+    | 'event ($key ...) = $rhs ...': add_transfer('boundary.event_key($key ...)', observation('$rhs ...'))
+    | 'relate ($key ...) = $rhs ...': add_relation('boundary.history_key($key ...)', 'ir.Observed(operand($rhs ...))')
     | 'pin $(id :: Identifier) from $path ...':
         unless reads
         | block:
             emit('def $pin_reads = MutableMap{}')
             reads := #true
         def key = iterated_path('$path ...')
-        'def $id = read_physical($pin_reads, $ports, $key)'
+        'def $id = boundary.read_physical($pin_reads, $ports, $key)'
     | 'care $path ... = $rhs ...':
         add_care(iterated_path('$path ...'), 'ir.Observed(operand($rhs ...))')
     | ~else: line
@@ -522,11 +533,36 @@ expr.macro 'rtl_relation($cycle, $ports, $sync): $line; ...':
                                  $(all_cares(cares)), $(all_transfers(transfers)), {})
      boundary.checked_leaf_hints($cycle, rel, physical, $sync)'
 
-/* A care predicate reads actual pin values, never the cycle spec's predicted outputs. */
-fun read_physical(reads :: MutableMap, ports :: SampledPorts, key :: String):
-  def sort = if ports.inputs.has_key(key) | ports.inputs[key] | ports.outputs[key]
-  reads[key] := sort
-  ir.input_ref(key, sort)
+/* Build named events in lexical order using the actual boundary's pin reader. */
+expr.macro 'physical_sampler($access): $line; ...':
+  def values(_, _, _, record, emit, declarations) = model_body()
+  def events = MutableMap{}
+  for (clause in [line, ...]):
+    match clause
+    | 'event $(id :: Identifier) = $rhs ...':
+        record(events, field_name(id), observation('$rhs ...'), clause)
+    | 'state $rest ...': syntax_meta.error("physical event samplers are stateless", clause)
+    | 'next $rest ...': syntax_meta.error("physical event samplers are stateless", clause)
+    | ~else: emit(clause)
+  when events.length() == 0 | syntax_meta.error("physical sampler requires a named event", access)
+  let [decl, ...] = declarations()
+  'fun (read):
+     bind_physical_accessor $access(read)
+     $decl
+     ...
+     $(map_expr(events))'
+
+meta:
+  /* Resolve the member path, not an in-scope cycle expression with the same spelling. */
+  fun physical_access(read :: Syntax, path :: Syntax):
+    '$read($(iterated_path(path)))'
+
+/* Introduce the sampler-local pin reader without adding a global reserved expression form. */
+defn.macro 'bind_physical_accessor $access($read)':
+  '«
+     expr.macro '$access($('$')path $('...'))':
+       physical_access('$read', '$('$')path $('...')')
+   »'
 
 /* Compile a circuit-bound body to typed IR; evaluate each clause at its original lexical site. */
 defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ...) ($arr, ...): $line; ...':
@@ -560,12 +596,19 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
   def values(declare_family, update, all_states, all_initial, all_updates) = state_families(model_clause)
   def mutable has_family = #false
   def mutable iterates_observations = #false
+  /* Both named source forms share direction checks, event domains and specialization caching. */
+  fun named_reader(reader :: Syntax, view :: Syntax, clause :: Syntax):
+    when event_source | syntax_meta.error("duplicate sampled event source", clause)
+    bound_events := Syntax.make_temp_id("sampled_ports")
+    event_source := bound_events
+    model_clause('def $bound_events = $view')
+    model_clause('def $reader = boundary.event_reader($(bound_events) . sampler with (assumptions = {}), bound.ports)')
   /* Ordinary expressions stay local; either emitted events or outputs require full cycle checking. */
   fun cycle_line(line :: Syntax):
     match line
     | 'event ($key ...) = $rhs ...':
         iterates_observations := #true
-        add_event('($key ...)', observation('$rhs ...'))
+        add_event('boundary.event_key($key ...)', observation('$rhs ...'))
     | 'next $(id :: Identifier)[$i ...] = $rhs ...': update('$id[$i ...]', '($rhs ...)')
     | 'observe $path ... = $rhs ...':
         iterates_observations := #true
@@ -600,13 +643,10 @@ defn.macro 'declared_spec $name($family, $sync) ($pin, ...) ($cfg, ...) ($ep, ..
     | 'observe $n ... = $v ...': record(outputs, field_name('$n ...'), observation('$v ...'), clause)
     | 'output $n ... = $v ...': record(outputs, field_name('$n ...'), observation('$v ...'), clause)
     | 'event $n ... = $v ...': record(events, field_name('$n ...'), observation('$v ...'), clause)
+    | 'events $(reader :: Identifier) from $(access :: Identifier): $entry; ...':
+        named_reader(reader, 'bound.pin_events(physical_sampler($access): $entry; ...)', clause)
     | 'events $(reader :: Identifier) = $rhs ...':
-        when event_source | syntax_meta.error("duplicate sampled event source", clause)
-        event_source := Syntax.make_temp_id("event_source")
-        bound_events := Syntax.make_temp_id("sampled_ports")
-        model_clause('def $event_source = $rhs ...')
-        model_clause('def $bound_events = boundary.bind_event_source($event_source, top)')
-        model_clause('def $reader = boundary.event_reader($(bound_events) . sampler with (assumptions = {}), bound.ports)')
+        named_reader(reader, 'boundary.bind_event_source(($rhs ...), top)', clause)
     | 'events $rhs ...':
         when event_source | syntax_meta.error("duplicate sampled event source", clause)
         event_source := Syntax.make_temp_id("event_source")

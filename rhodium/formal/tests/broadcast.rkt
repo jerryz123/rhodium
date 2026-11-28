@@ -29,6 +29,15 @@
     (transaction-step seal view state
       (hash "rst" #f "take" take "incoming" incoming "pop_l" l "out_l" lw "pop_r" r "out_r" rw)))
 
+  (test-case "left delivery clears owed_l and leaves owed_r live under the old public keys"
+    (define word (bv 3 2))
+    (define-values (accepted full) (edge empty #t word #f z #f z))
+    (define-values (delivered split) (edge full #f z #t word #f z))
+    (check-true (and accepted delivered))
+    (check-equal? (hash-ref split "owed_l") (hash-ref empty "owed_l"))
+    (check-equal? (hash-ref split "owed_r") (hash-ref full "owed_r"))
+    (check-not-equal? (hash-ref split "owed_r") (hash-ref empty "owed_r")))
+
   (for ([left-first? '(#t #f)])
     (test-case (format "recipient left-first=~a: no lost, duplicate, or overwritten word" left-first?)
       (define-symbolic* a b first last next-l next-r (bitvector 2))
@@ -139,6 +148,19 @@
     (check-equal? (last bad) (list (hash "accepted" 2) '("right-space"))))
 
   (define queued-view (QueuedFork queued_top #:transaction_view #t))
+  (for ([n '(1 3)] [w '(1 8)] [data '(1 129)])
+    (test-case (format "QueuedFork(~a,~a) drains each buffered copy once in reverse lane order" n w)
+      (define top (queued_fork_top n w))
+      (define blocked (make-list n #f))
+      (define lanes (reverse (range n)))
+      (define rows (append (list (list* #t #f 0 blocked) (list* #f #t data blocked))
+                           (for/list ([i lanes]) (list* #f #f 0 (for/list ([j (in-range n)]) (= i j))))
+                           (list (list* #f #f 0 (make-list n #t)))))
+      (define events (append (list (hash "reset" #t) (hash "accepted" data))
+                             (for/list ([i lanes]) (hash (format "lane~a" i) data))
+                             (list (hash))))
+      (check-equal? (replay top (QueuedFork top #:transaction_view #t) rows)
+                    (for/list ([e events]) (list e '())))))
   (test-case "compose from supplied seals only, with independent histories for the identical queue occurrences"
     (define fork (prove-design (child_definition queued_top "fork") AtomicFork))
     (define fifo (prove-design (child_definition queued_top "queue") ShiftQueue))

@@ -28,6 +28,8 @@ fun inventory():
   BothOnlyReceipt()
 def bad_top = elaborate(inventory()).top
 def queued = elaborate(BroadcastReceipt(~queued: #true)).top
+def single_direct = elaborate(BroadcastReceipt(1, 1)).top
+def single_queued = elaborate(BroadcastReceipt(1, 1, ~queued: #true)).top
 def wide_direct = elaborate(BroadcastReceipt(3, 8)).top
 def wide_queued = elaborate(BroadcastReceipt(3, 8, ~queued: #true)).top
-export direct queued bad_top wide_direct wide_queued
+export direct queued bad_top single_direct single_queued wide_direct wide_queued

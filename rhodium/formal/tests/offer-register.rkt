@@ -2,7 +2,7 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require rackunit racket/match "composition-checks.rkt" "stall-replay.rhm"
-         (only-in "offer-register-claim.rspl" dut cycle_row [OfferRegister StableClaim])
+         (only-in "offer-register-claim.rspl" dut offer_at cycle_row [OfferRegister StableClaim])
          (only-in "../../../examples/formal/offer-register.rspl" OfferRegister)
          (only-in "../../../rspecl/runner.rkt" prove-design)
          (only-in "../../../rspecl/proof.rkt" transaction-step)
@@ -19,6 +19,18 @@
   (define view (OfferRegister dut #:transaction_view #t))
   (define seal (prove-design dut OfferRegister))
   (define bad-view (StableClaim dut #:transaction_view #t))
+  (for ([width '(1 2 8)])
+    (test-case (format "physical sampler reads actual ~a-bit pins, including an offered zero" width)
+      (define sampled (OfferRegister (offer_at width) #:transaction_view #t))
+      (define high (arithmetic-shift 1 (sub1 width)))
+      (define pins (hash "reset" #f "update.valid" #t "update.bits" 0 "egress.ready" #t
+                         "egress.valid" #t "egress.bits" high))
+      (define (sample p) (for/hash ([(k v) (sample_events sampled p)]) (values k v)))
+      (check-equal? (sample pins) (hash "installed" 0 "offered" high "delivered" high))
+      (check-equal? (sample (hash-set* pins "egress.ready" #f "egress.bits" 0))
+                    (hash "installed" 0 "offered" 0))
+      (check-equal? (sample (hash-set pins "egress.valid" #f)) (hash "installed" 0))
+      (check-equal? (sample (hash-set pins "reset" #t)) (hash "reset" #t))))
   (test-case "simultaneous delivery and replacement, using only the public seal"
     (define-values (_ monitor _i _o) (transaction_parts view))
     (define empty (spec-initial-state (spec_snapshot monitor)))

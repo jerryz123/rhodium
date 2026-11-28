@@ -7,9 +7,9 @@ import lib("rspecl/broadcast.rspl") open
 
 spec for rtl.Broadcast:
   def word = ingress.bits.type
-  def lanes = broadcast_lanes(n)
-  def slot_names = lanes.map(fun (lane): lane.event ++ "_slot")
-  state slot[slot_names]: Seq(word, 1) initially []
+  def lanes = BroadcastLanes(egress)
+  def slots = history_family(lanes.names.map(fun (name): name ++ "_slot"))
+  state slot[slots]: Seq(word, 1) initially []
   def vacant = const(Seq(word, 1), [])
   // This RTL can replace a word exactly when all remaining recipients can take it.
   def mutable room = const(Bool, #true)
@@ -23,10 +23,10 @@ spec for rtl.Broadcast:
     observe egress[i].bits = front(slot[i]) when !reset && live
     next slot[i] = select(reset, vacant, select(accept, arrival, select(egress[i].ready, vacant, slot[i])))
 
-  events transfers = broadcast_transfers(ingress, egress)
-  transactions broadcast_monitor(n, word.width, transfers)
+  events transfers = lanes.transfers(ingress)
+  transactions broadcast_monitor(lanes, word.width, transfers)
   refinement:
-    for (lane in lanes, i in 0..n): relate (lane.history) = slot[i]
+    for (i in 0..n): relate (lanes.owed[i]) = slot[i]
 
   rtl_refinement:
     register pending: Bits(n)
@@ -36,7 +36,7 @@ spec for rtl.Broadcast:
     pin rst from reset
     care ingress.ready = !rst
     for (i in 0..n):
-      relate (slot_names[i]) = select(bits_equal(bits_slice(pending, i, 1), const(Bits(1), 1)), copy, vacant)
+      relate (slots[i]) = select(bits_equal(bits_slice(pending, i, 1), const(Bits(1), 1)), copy, vacant)
       pin offered from egress[i].valid
       care egress[i].valid = !rst
       care egress[i].bits = !rst && offered

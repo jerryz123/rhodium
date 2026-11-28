@@ -3,22 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import lib("flow/offer-register.rhdl") as rtl
-import lib("rhodium/formal/spec.rhm").Observed
-
-/* Observe a Valid update independently of the Decoupled offer and its handshake. */
-fun samples(read :: Function, output :: Function, w :: PosInt):
-  def rst = read("reset", Bool)
-  def offered = !rst && output("egress.valid", Bool)
-  def word = output("egress.bits", Bits(w))
-  {"reset": Observed(const(Bool, #true), rst),
-   "installed": Observed(read("update.bits", Bits(w)), !rst && read("update.valid", Bool)),
-   "offered": Observed(word, offered),
-   "delivered": Observed(word, offered && read("egress.ready", Bool))}
 
 spec for rtl.OfferRegister:
-  specialize w = update.bits.type.width ~default: 2
+  def word = update.bits.type
   state live: Bool initially #false
-  state stored: Bits(w) initially 0 as unused
+  state stored: word initially 0 as unused
   observe egress.valid = live when !reset
   observe egress.bits = stored when !reset && live
 
@@ -27,18 +16,28 @@ spec for rtl.OfferRegister:
   next live = !reset && (update.valid || keep)
   next stored = select(reset, unused, select(update.valid, update.bits, select(keep, stored, unused)))
 
+  // Sample the actual offer, including stalls; a simultaneous update is a separate event.
+  events samples from pin:
+    def rst = pin(reset)
+    def has_offer = !rst && pin(egress.valid)
+    def outgoing = pin(egress.bits)
+    event reset = #true when rst
+    event installed = pin(update.bits) when !rst && pin(update.valid)
+    event offered = outgoing when has_offer
+    event delivered = outgoing when has_offer && pin(egress.ready)
+
   monitor:
-    sample fun (read, output): samples(read, output, w)
-    publish ["installed", "delivered"]
+    sample samples
+    publish [installed, delivered]
     batch rst = present(reset)
     batch install = present(installed)
-    batch new_word: Bits(w) = payload(installed) when install
+    batch new_word: word = payload(installed) when install
     batch offered = present(offered)
-    batch offer_word: Bits(w) = payload(offered) when offered
+    batch offer_word: word = payload(offered) when offered
     batch transfer = present(delivered)
-    batch old_word: Bits(w) = payload(delivered) when transfer
+    batch old_word: word = payload(delivered) when transfer
     // An empty list means no offer; a list containing zero means there really is a word to deliver.
-    state slot: Seq(Bits(w), 1) initially [] as vacant
+    state slot: Seq(word, 1) initially [] as vacant
 
     guarantee "reset-quiets-events" = !(install || offered || transfer) when rst
     guarantee "offer-presence" = select(empty(slot), !offered, offered) when !rst
@@ -48,15 +47,15 @@ spec for rtl.OfferRegister:
     next slot = select(rst, vacant, select(install, append(vacant, new_word), select(transfer, vacant, slot)))
 
   refinement:
-    let vacant = const(Seq(Bits(w), 1), [])
+    let vacant = const(Seq(word, 1), [])
     relate slot = select(live, append(vacant, stored), vacant)
 
   rtl_refinement:
     register occupied: Bool
-    register payload: Bits(w)
+    register payload: word
     relate live = occupied
     // When the slot is empty the register bits do not matter, so the model represents them by zero.
-    relate stored = select(occupied, payload, const(Bits(w), 0))
+    relate stored = select(occupied, payload, const(word, 0))
     pin rst from reset
     pin valid from egress.valid
     care egress.valid = !rst

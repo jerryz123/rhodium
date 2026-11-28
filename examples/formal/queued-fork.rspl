@@ -8,14 +8,14 @@ import "shift-queue.rspl".ShiftQueue
 import lib("rspecl/broadcast.rspl") open
 
 spec for rtl.QueuedFork:
-  events transfers = broadcast_transfers(ingress, egress)
-  let lanes = broadcast_lanes(n)
+  let lanes = BroadcastLanes(egress)
+  events transfers = lanes.transfers(ingress)
   let sites = for List (i in 0..n): rtl.queue_site(i)
-  transactions broadcast_monitor(n, width, transfers)
+  transactions broadcast_monitor(lanes, width, transfers)
   refinement:
     child fork: AtomicFork
     children (sites): ShiftQueue
     // A recipient owns the outstanding copy in its own queue, not a sibling's copy.
-    for (site in sites, lane in lanes):
+    for (site in sites, i in 0..n):
       history copy from (site, "q"): Seq(ingress.bits.type, 1)
-      relate (lane.history) = copy
+      relate (lanes.owed[i]) = copy

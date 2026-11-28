@@ -15,7 +15,8 @@ import:
   lib("rhodium/formal/fifo-view.rhm").make_fifo_view
 
 export declared_ports interface_prefixes Endpoint
-export rv_transfers ready_valid_events bind_event_source event_reader
+export rv_transfers ready_valid_events bind_event_source event_reader read_physical
+export event_family history_family event_key history_key
 export transaction_view check_transaction_ports transaction_parts transaction_batch_model Presence Payload
 export attach_refinement refinement_parts child_transaction child_definition checked_leaf_hints
 export combine_transactions shared_contract shared_expectation check_shared_contract
@@ -24,11 +25,25 @@ export:
   rename: ScalarPins as rv_pins
 
 /* Flat logical field schemas and lexical views, with no RTL drivers or implementation state. */
-class Boundary(ports :: SampledPorts, endpoints :: Map, arrays :: Map, parameters :: Map):
+class Boundary(ports :: SampledPorts, endpoints :: Map, arrays :: Map, parameters :: Map, top :: Module):
   /* A non-scalar argument is not part of the model and is only diagnosed if referenced. */
   method parameter(name :: String):
     unless parameters.has_key(name) | error("not an integer or Boolean RTL parameter: " ++ name)
     parameters[name]
+
+  /* Bind a custom event sampler to this occurrence, using only the physical pins it reads. */
+  method pin_events(build :: Function.of_arity(1)):
+    def reads = MutableMap{}
+    def events = build(fun (key :: String): read_physical(reads, ports, key))
+    PinEvents(top, make_spec(reads.snapshot(), {}, {}, {}, events, {}))
+
+/* Share physical pin resolution between transaction sampling and RTL refinement hints. */
+fun read_physical(reads :: MutableMap, ports :: SampledPorts, key :: String):
+  unless ports.inputs.has_key(key) || ports.outputs.has_key(key)
+  | error("unknown physical pin: " ++ key)
+  def sort = if ports.inputs.has_key(key) | ports.inputs[key] | ports.outputs[key]
+  reads[key] := sort
+  input_ref(key, sort)
 
 /* A lexical group retains its elaborated name; cycle expressions can read only its inputs. */
 class Group(top :: Module, name :: String, inputs :: Map)
@@ -103,7 +118,7 @@ fun sampled_boundary(top :: Module, synchronous :: Boolean, parameters :: Map):
           | error("unsupported clock on sampled boundary: " ++ p.name)
       | p.direction == "input": ins[p.name] := sampled_type(p.type, Bool)
       | ~else: outs[p.name] := sampled_type(p.type, Bool)
-  Boundary(SampledPorts(ins.snapshot(), outs.snapshot()), endpoints.snapshot(), arrays.snapshot(), parameters)
+  Boundary(SampledPorts(ins.snapshot(), outs.snapshot()), endpoints.snapshot(), arrays.snapshot(), parameters, top)
 
 /* Keep group provenance; explicit descriptors may name only real scalar pins, not flattened aliases. */
 fun endpoint_members(top :: Module, endpoint :: ReadyValidEndpoint):
@@ -122,11 +137,40 @@ fun endpoint_members(top :: Module, endpoint :: ReadyValidEndpoint):
 /* A passive event source: binding it to a module checks the pins but proves no protocol. */
 class PinEvents(top :: Module, sampler :: LeafModel)
 
-/* Treat keyword labels as public event names; generated names can use a string-keyed map. */
+/* An indexed event denotes a public trace label, never a state projection. */
+class EventRef(name :: String)
+
+/* A history reference can declare or project a state cell but cannot sample a transfer. */
+class HistoryRef(name :: String)
+
+/* Validate aliases before an endpoint map or state declaration can collapse two lanes into one. */
+fun named_family(names :: List.of(String), wrap :: Function):
+  def seen = MutableSet{}
+  for List (name in names):
+    when name == "" || name in seen | error("empty or duplicate family name: " ++ name)
+    seen.add(name)
+    wrap(name)
+
+/* Construct indexable public event references in physical port order. */
+fun event_family(names :: List.of(String)): named_family(names, EventRef)
+
+/* Construct indexable history references in the declared state order. */
+fun history_family(names :: List.of(String)): named_family(names, HistoryRef)
+
+/* Lower an event reference to its existing replay and proof IR name. */
+fun event_key(ref :: String || EventRef): if ref is_a EventRef | ref.name | ref
+
+/* Lower a history reference only at a state declaration or projection boundary. */
+fun history_key(ref :: String || HistoryRef): if ref is_a HistoryRef | ref.name | ref
+
+/* Treat keyword labels as public event names; endpoint maps also accept indexed event references. */
 fun
 | rv_transfers(~& named :: Map):
     transfer_source(for Map ((key, endpoint) in named): values(to_string(key), endpoint))
-| rv_transfers(endpoints :: Map): transfer_source(endpoints)
+| rv_transfers(endpoints :: Map):
+    def named = for Map ((ref, endpoint) in endpoints): values(event_key(ref), endpoint)
+    unless named.length() == endpoints.length() | error("duplicate transfer name")
+    transfer_source(named)
 
 /* Sample each named endpoint independently on valid && ready. Infer physical direction and
    payload type from the elaboration; do not suppress reset edges or merge concurrent transfers. */

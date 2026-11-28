@@ -109,6 +109,24 @@ A guarded guarantee still returns a verdict on **every** sample:
 passes when the guard is false without evaluating the body. It does not assume
 that the two events coincide; that needs its own guarantee.
 
+For custom transfers, declare a physical sampler inside `spec for`. The name
+after `from` is a local pin reader. It resolves each scalar or interface
+member against the elaborated RTL, inferring direction and width:
+
+```rhombus
+events samples from pin:
+  def active = !pin(reset)
+  event installed = pin(update.bits) when active && pin(update.valid)
+  event delivered = pin(egress.bits) when active && pin(egress.valid) && pin(egress.ready)
+```
+
+Use `sample samples` and `publish [installed, delivered]` in the monitor.
+On a physical trace, `pin(egress.bits)` reads the actual output; only cycle
+simulation substitutes the spec's predicted output. Both use the same event
+definitions. The [OfferRegister spec](../examples/formal/offer-register.rspl)
+also samples stalled offers without publishing them as deliveries. This form
+requires an elaborated top, including when requesting a transaction view.
+
 For independent ready/valid handshakes, name the endpoints directly:
 
 ```rhombus
@@ -122,6 +140,18 @@ Unknown or duplicate names are rejected when the monitor binds its sampler.
 Helpers can still pass a string-keyed map to `rv_transfers` or a computed list
 of strings to `publish`. Both forms produce the same public event names.
 
+For parameterized ports, declare trace labels once with `event_family(names)`
+and public state keys with `history_family(names)`. Both return lists in the
+supplied order and reject empty or duplicate labels. Use an event reference
+as an `rv_transfers` map key, in `present` or `payload`, or after a static
+publish list: `publish [reset, accepted] ++ lanes.delivery`. Use a history
+family to declare state (`state owed[lanes.owed]: ...`) and to read a sealed
+child's public cell (`history pending from fanout[lanes.owed[i]]: ...`).
+Event and history references are not interchangeable.
+The [broadcast contract](broadcast.rspl) binds both families to the elaborated
+egress array; the two-output specialization keeps the trace labels `left` and
+`right` without making consumers special-case lane count.
+
 Each event carries its own endpoint's
 payload exactly when its valid and ready are both high. Pin direction and payload
 type come from the elaborated ports; use `rv_pins("valid", "ready", "data")`
@@ -129,11 +159,12 @@ for three scalar pins. There is no implicit reset or choice of winner. Even a
 one-sided transfer remains visible, so the [fork guarantee](../examples/formal/atomic-fork.rspl)
 can reject it. For FIFO-style reset, accepted and retired events use
 `ready_valid_events`; add [`fifo_monitor`](fifo.rspl) to promise ordering and a bound.
-For a buffered broadcast, `broadcast_transfers(ingress, egress)` samples the
-input and every output. Pass its bound event reader to
-[`broadcast_monitor(count, width, transfers)`](broadcast.rspl). It samples
+For a buffered broadcast, construct `lanes = BroadcastLanes(egress)` and bind
+`events transfers = lanes.transfers(ingress)` to sample the input and every
+output. Pass the same lanes and reader to
+[`broadcast_monitor(lanes, width, transfers)`](broadcast.rspl). It samples
 the `reset` input and tracks which recipients still need the old word.
-Two outputs retain the event names `left` and `right`; other counts use `lane0`, `lane1`, and so on.
+Outside the two-output specialization, delivery labels are `lane0`, `lane1`, and so on.
 The last recipient may take that word on the edge accepting its replacement;
 the monitor promises neither when a recipient is ready nor that it ever retires.
 Compare [Broadcast](../examples/formal/broadcast.rspl), which can accept on that

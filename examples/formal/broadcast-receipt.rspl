@@ -13,19 +13,20 @@ fun receipt_samples(transfers :: Function.of_arity(2)):
     deliveries(read, output) ++ {"pulse": Observed(const(Bool, #true), output("receipt", Bool))}
 
 spec for rtl.BroadcastReceipt:
-  events transfers = broadcast_transfers(ingress, egress)
-  let lanes = broadcast_lanes(egress.length())
+  let lanes = BroadcastLanes(egress)
+  let due = history_family(lanes.names.map(fun (name): name ++ "_due"))
+  events transfers = lanes.transfers(ingress)
   monitor:
     sample receipt_samples(transfers)
-    publish ["reset", "accepted", "pulse"] ++ lanes.map(fun (lane): lane.event)
+    publish [reset, accepted, pulse] ++ lanes.delivery
     batch rst = present(reset)
     batch take = present(accepted)
     batch pulse = present(pulse)
-    state owed[lanes.map(fun (lane): lane.event ++ "_due")]: Bool initially #false
+    state owed[due]: Bool initially #false
     def mutable live = const(Bool, #false)
     def mutable finished = const(Bool, #true)
-    for (lane in lanes, i in 0..lanes.length()):
-      batch pop("pop_" ++ lane.suffix) = present(lane.event)
+    for (i in 0..n):
+      batch pop(lanes.pop[i]) = present(lanes.delivery[i])
       live := live || owed[i]
       finished := finished && (!owed[i] || pop)
       next owed[i] = !rst && (take || (owed[i] && !pop))
@@ -33,8 +34,8 @@ spec for rtl.BroadcastReceipt:
   refinement:
     child fanout: broadcast_contract
     // Each physical bookkeeping bit describes one public child history.
-    for (lane in lanes, i in 0..lanes.length()):
-      history pending from ("fanout", lane.history): Seq(ingress.bits.type, 1)
-      local bit("due_" ++ to_string(i)): Bool
-      relate (lane.event ++ "_due") = !empty(pending)
-      invariant (lane.event ++ "_matches") = bool_equal(bit, !empty(pending))
+    for (i in 0..n):
+      history pending from fanout[lanes.owed[i]]: Seq(ingress.bits.type, 1)
+      local bit(rtl.due_site(i)): Bool
+      relate (due[i]) = !empty(pending)
+      invariant (lanes.names[i] ++ "_matches") = bool_equal(bit, !empty(pending))

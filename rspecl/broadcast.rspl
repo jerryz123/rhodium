@@ -3,23 +3,23 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import lib("rhodium/formal/spec.rhm").Observed
-export broadcast_monitor broadcast_events broadcast_contract broadcast_lanes broadcast_transfers
+export broadcast_monitor broadcast_events broadcast_contract BroadcastLanes
 
-/* Keep the two-output contract's public left/right events and owed_l/owed_r histories. */
-class Recipient(event :: String, suffix :: String):
-  field history = "owed_" ++ suffix
+/* Index both sides of the contract by the elaborated egress array. The names below
+   are its trace ABI; proofs and consumers use the same checked references by lane. */
+class BroadcastLanes(ports :: List.of(Endpoint)):
+  private field count = ports.length()
+  field names = if count == 2 | ["left", "right"] | for List (i in 0..count): "lane" ++ to_string(i)
+  private field suffix = if count == 2 | ["l", "r"] | for List (i in 0..count): to_string(i)
+  field delivery = event_family(names)
+  field owed = history_family(suffix.map(fun (s): "owed_" ++ s))
+  field pop = suffix.map(fun (s): "pop_" ++ s)
+  field out = suffix.map(fun (s): "out_" ++ s)
 
-/* Name a stable event and history for each recipient in elaborated port order. */
-fun broadcast_lanes(count :: PosInt):
-  if count == 2
-  | [Recipient("left", "l"), Recipient("right", "r")]
-  | for List (i in 0..count): Recipient("lane" ++ to_string(i), to_string(i))
-
-/* Bind all transfers independently, so duplicate or missing deliveries remain observable. */
-fun broadcast_transfers(ingress :: Endpoint, egress :: List.of(Endpoint)):
-  def outputs = for Map (lane in broadcast_lanes(egress.length()), port in egress):
-    values(lane.event, port)
-  rv_transfers({"accepted": ingress} ++ outputs)
+  /* Sample distinct physical handshakes; never infer a delivery on one lane from another. */
+  method transfers(ingress :: Endpoint):
+    def outputs = for Map (event in delivery, port in ports): values(event, port)
+    rv_transfers({"accepted": ingress} ++ outputs)
 
 /* Turn the caller's handshakes into reset epochs. Do not read
    transfer pins on reset, when even valid and ready can be outside the cycle contract. */
@@ -32,25 +32,24 @@ fun broadcast_events(transfers :: Function.of_arity(2)):
 
 /* Each branch has room for one outstanding word. Check retirements against the
    old copies before installing a simultaneous replacement for every recipient. */
-fun broadcast_monitor(count :: PosInt, width :: PosInt, transfers :: Function.of_arity(2)):
+fun broadcast_monitor(lanes :: BroadcastLanes, width :: PosInt, transfers :: Function.of_arity(2)):
   def word = Bits(width)
-  def lanes = broadcast_lanes(count)
   def vacant = const(Seq(word, 1), [])
   monitor:
     sample broadcast_events(transfers)
-    publish ["reset", "accepted"] ++ lanes.map(fun (lane): lane.event)
+    publish [reset, accepted] ++ lanes.delivery
     batch rst = present(reset)
     batch take = present(accepted)
     batch incoming: word = payload(accepted) when take
-    state owed[lanes.map(fun (lane): lane.history)]: Seq(word, 1) initially []
+    state owed[lanes.owed]: Seq(word, 1) initially []
     let replacement = append(vacant, incoming)
     def mutable any_transfer = take
-    for (lane in lanes, i in 0..count):
-      batch pop("pop_" ++ lane.suffix) = present(lane.event)
-      batch out("out_" ++ lane.suffix): word = payload(lane.event) when pop
+    for (i in 0..lanes.delivery.length()):
+      batch pop(lanes.pop[i]) = present(lanes.delivery[i])
+      batch out(lanes.out[i]): word = payload(lanes.delivery[i]) when pop
       any_transfer := any_transfer || pop
-      guarantee (lane.event ++ "-delivery") = !empty(owed[i]) && bits_equal(out, front(owed[i])) when pop
-      guarantee (lane.event ++ "-space") = empty(owed[i]) || pop when take
+      guarantee (lanes.names[i] ++ "-delivery") = !empty(owed[i]) && bits_equal(out, front(owed[i])) when pop
+      guarantee (lanes.names[i] ++ "-space") = empty(owed[i]) || pop when take
       next owed[i] = select(rst, vacant, select(take, replacement, select(pop, vacant, owed[i])))
     guarantee "quiet-reset" = !any_transfer when rst
 
@@ -58,8 +57,7 @@ fun broadcast_monitor(count :: PosInt, width :: PosInt, transfers :: Function.of
    The proof driver chooses the implementation; consumers need only this declaration. */
 fun bind_broadcast(ports :: Map, sample :: Function.of_arity(1)):
   def ingress :: Endpoint = ports["ingress"]
-  def lanes = ports["egress"]
-  def transfers = sample(broadcast_transfers(ingress, lanes))
-  broadcast_monitor(lanes.length(), ingress.bits.type.width, transfers)
+  def lanes = BroadcastLanes(ports["egress"])
+  broadcast_monitor(lanes, ingress.bits.type.width, sample(lanes.transfers(ingress)))
 
 def broadcast_contract = shared_contract(bind_broadcast)

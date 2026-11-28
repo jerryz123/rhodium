@@ -13,9 +13,10 @@ spec for rtl.OfferRegister:
   refinement:
     adjacent_samples from correct.OfferRegister
 
-def dut = hw.elaborate(rtl.OfferRegister(hw.Bits(2))).top
+fun offer_at(width :: PosInt): hw.elaborate(rtl.OfferRegister(hw.Bits(width))).top
+def dut = offer_at(2)
 def cycle = correct.OfferRegister(dut)
 fun cycle_row(old, inputs):
   def edge = step_spec(cycle, (if old | old | cycle.initial), inputs)
   values(edge.outputs, edge.events, edge.next_state)
-export dut cycle_row
+export dut offer_at cycle_row

@@ -25,6 +25,24 @@ def raw_pair = rv_transfers({"arrived": rv_pins("offer", "ready", "data"),
                              "departed": rv_pins("valid", "consume", "head")})(pair_top)
 def keyword_pair = rv_transfers(~arrived: rv_pins("offer", "ready", "data"),
                                 ~departed: rv_pins("valid", "consume", "head"))(pair_top)
+def deliveries = event_family(["arrived", "departed"])
+def histories = history_family(["arrived", "departed"])
+def offer_pins = rv_pins("offer", "ready", "data")
+def head_pins = rv_pins("valid", "consume", "head")
+def indexed_pair = rv_transfers({deliveries[0]: offer_pins, deliveries[1]: head_pins})(pair_top)
+check:
+  spec_snapshot(indexed_pair.sampler) ~is spec_snapshot(keyword_pair.sampler)
+  event_family(["left", "left"]) ~throws "duplicate family name"
+  history_family([""]) ~throws "empty or duplicate family name"
+  rv_transfers({deliveries[0]: offer_pins, "arrived": offer_pins}) ~throws "duplicate transfer name"
+  rv_transfers({histories[0]: offer_pins}) ~throws "EventRef"
+check:
+  block:
+    spec for sync.Echo:
+      state held[deliveries]: Bool initially #false
+      observe echo = payload
+    Echo(elaborate(sync.Echo(1)).top)
+  ~throws "HistoryRef"
 def one_sided = {"offer": #true, "ready": #false, "data": 3, "valid": #true, "consume": #true, "head": 0}
 check:
   spec_snapshot(keyword_pair.sampler) ~is spec_snapshot(raw_pair.sampler)
@@ -65,6 +83,45 @@ check:
   ~throws "undeclared or mistyped spec reference: output.bad"
 
 fun one_event(_read, write): {"item": Observed(write("bad", Bool))}
+
+// Even a never-present event must resolve its payload against the physical boundary.
+check:
+  block:
+    spec for rtl.ParamProbe:
+      events raw from pin:
+        event item = pin(absent) when #false
+      monitor:
+        sample raw
+        publish [item]
+        guarantee "ok" = #true
+    ParamProbe(elaborate(rtl.ParamProbe(0)).top, ~transaction_view: #true)
+  ~throws "unknown physical pin: absent"
+check:
+  block:
+    spec for rtl.ParamProbe:
+      state predicted: Bool initially #false
+      observe bad = predicted
+      events raw from pin:
+        event item = predicted
+      monitor:
+        sample raw
+        publish [item]
+        guarantee "ok" = #true
+    ParamProbe(elaborate(rtl.ParamProbe(0)).top, ~transaction_view: #true)
+  ~throws "undeclared or mistyped spec reference: predicted"
+check:
+  ~eval
+  import lib("rspecl/language.rhm").spec
+  import lib("rhodium/formal/tests/spec-dsl-fixture.rhdl") as rtl
+  spec for rtl.ParamProbe:
+    events raw from pin:
+      event item = pin(bad)
+      event item = #false
+    monitor:
+      sample raw
+      publish []
+      guarantee "ok" = #true
+  ~throws "duplicate spec declaration: item"
 
 // A generated cycle event cannot turn an incomplete cycle spec into a passive monitor.
 check:
