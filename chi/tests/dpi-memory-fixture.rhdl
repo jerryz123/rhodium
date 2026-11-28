@@ -11,11 +11,12 @@ def chi_dpi_memory_flit = CHIFlitParams()
 def chi_dpi_memory_config = CHIRamConfig(
   chi_dpi_memory_flit,
   4096,
-  ~max_outstanding: 4,
+  ~max_outstanding: 2,
   ~max_transfer_bytes: 64
 )
 
-def design = compile_program(elaborate(CHIDPIMemory(chi_dpi_memory_config, 0)), rtl_target).report.design
+def program = elaborate(CHIDPIMemory(chi_dpi_memory_config, 0))
+def design = compile_program(program, rtl_target).report.design
 def wide_design = compile_program(elaborate(CHIDPIMemory(CHIRamConfig(
   CHIFlitParams(~data_width: 512),
   4096,
@@ -25,5 +26,6 @@ def wide_design = compile_program(elaborate(CHIDPIMemory(CHIRamConfig(
 export:
   chi_dpi_memory_flit
   chi_dpi_memory_config
+  program
   design
   wide_design

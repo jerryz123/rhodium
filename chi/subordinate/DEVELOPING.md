@@ -61,7 +61,10 @@ and returns the binder for nonstallable issue/completion flows. Preserve the
 operation metadata and ordering on every completion. Both current backends
 complete one cycle after issue. Independent, non-pipelined read and write
 `CompletionQueue` lanes own registered capacity reservations and isolate DAT
-backpressure from RSP progress. Non-pipelined operation and DBID queues prevent
+backpressure from RSP progress. DPI memory reserves at least three read beats
+so issue can proceed while a beat completes and another retires. Write
+reservations and CHI transaction slots still follow `max_outstanding`.
+Non-pipelined operation and DBID queues prevent
 response readiness from propagating into CHI request admission. The shared
 scheduler fairly selects one backend issue per cycle. Transaction slots accept
 simultaneous read and write retirements. Storage and DPI policy remain

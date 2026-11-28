@@ -198,7 +198,8 @@ fun monitor_chi_ram_write_data(p :: CHIFlitParams,
  */
 sync_circuit CHIRamOperationScheduler(p :: CHIFlitParams,
                                       slot_width :: PosInt,
-                                      depth :: PosInt):
+                                      read_completion_depth :: PosInt,
+                                      write_completion_depth :: PosInt):
   def Operation = CHIRamMemoryOperation(p, slot_width)
   def Completion = CHIRamMemoryCompletion(p, slot_width)
 
@@ -213,8 +214,8 @@ sync_circuit CHIRamOperationScheduler(p :: CHIFlitParams,
   /* Independent registered completion reservations.
      Read DAT stalls cannot consume the write lane's reserved RSP capacity. */
 
-  inst read_completions(CompletionQueue(Operation, Completion, depth, ~pipe: #false))
-  inst write_completions(CompletionQueue(Operation, Completion, depth, ~pipe: #false))
+  inst read_completions(CompletionQueue(Operation, Completion, read_completion_depth, ~pipe: #false))
+  inst write_completions(CompletionQueue(Operation, Completion, write_completion_depth, ~pipe: #false))
   reg prefer_write(~init: Bool(#false))
 
 
@@ -288,11 +289,13 @@ circuit CHIRamCompletionRouter(p :: CHIFlitParams,
  * instantiates local storage and returns a binder for Valid issue/completion
  * endpoints. Each issue must complete once, in order, retaining its operation;
  * CompletionQueue reserves response capacity before issuing nonstallable work.
+ * Read completion depth counts backend beats, independently of CHI slots.
  */
 fun build_chi_ram_controller(config :: CHIRamConfig,
                              identity :: CHIRamIdentity(config.flit),
                              port :: Endpoint.of(CHISNChannels(config.flit)),
                              backend :: Function.of_arity(0),
+                             ~read_completion_depth: read_completion_depth :: PosInt = config.max_outstanding,
                              ~trace: trace :: maybe(String) = #false):
   def p = config.flit
   def limit = config.max_outstanding
@@ -307,7 +310,7 @@ fun build_chi_ram_controller(config :: CHIRamConfig,
   inst dbid_responses(Queue(CHIRspFlit(p), limit))
   inst read_operations(Queue(MemoryOperation, limit))
   inst write_operations(Queue(MemoryOperation, limit))
-  inst memory_operations(CHIRamOperationScheduler(p, slot_width, limit))
+  inst memory_operations(CHIRamOperationScheduler(p, slot_width, read_completion_depth, limit))
   def connect_backend :: Function.of_arity(2) = backend()
   inst completion_router(CHIRamCompletionRouter(p, slot_width))
   completion_router.node_id <== identity.node_id

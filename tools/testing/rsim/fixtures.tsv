@@ -144,6 +144,7 @@ chi-fragmenter-metadata	protocols	chi/tests/rsim/emit-chi-fragmenter-metadata.rh
 chi-ram-read-trace	protocols	chi/tests/ram-read-trace-fixture.rhdl	program	chi/tests/rsim/ram-read-trace.cpp	target	rheg/runtime/rheg.cc
 chi-ram-write-trace	protocols	chi/tests/ram-write-trace-fixture.rhdl	program	chi/tests/rsim/ram-write-trace.cpp	target	rheg/runtime/rheg.cc
 chi-ram	protocols	examples/chi/ram.rhdl	ram_program	chi/tests/rsim/chi-ram.cpp
+chi-dpi-memory-read	protocols	chi/tests/dpi-memory-fixture.rhdl	program	chi/tests/rsim/chi-dpi-memory-read.cpp
 chi-home	protocols	examples/chi/home.rhdl	home_program	chi/tests/rsim/chi-home.cpp
 chi-monitor	protocols	chi/tests/rsim/emit-chi-monitor.rhm	program	chi/tests/rsim/chi-monitor.cpp
 chi-channel-monitor	protocols	chi/tests/rsim/emit-chi-channel-monitor.rhm	program	chi/tests/rsim/chi-channel-monitor.cpp

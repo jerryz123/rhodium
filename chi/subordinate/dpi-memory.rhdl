@@ -90,7 +90,10 @@ sync_circuit CHIDPIMemory(config :: CHIRamConfig, model_id :: Nat, ~trace: trace
 
     connect
 
-  build_chi_ram_controller(config, identity, port, backend, ~trace: trace)
+  // Read issue, backend completion, and DAT retirement can occupy three
+  // reservations on one edge before registered capacity reflects retirement.
+  def read_completion_depth = math.max(config.max_outstanding, 3)
+  build_chi_ram_controller(config, identity, port, backend, ~read_completion_depth: read_completion_depth, ~trace: trace)
 
 export:
   CHIDPIMemory
