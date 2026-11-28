@@ -70,7 +70,7 @@ void exercise(unsigned shift,unsigned first,unsigned limit,unsigned eew,unsigned
       const auto &w=write_out.pbits;
       CHECK(grants<rows.size());
       const unsigned r=rows[grants];
-      CHECK((t>=20 || r!=row0) && w.paddress==2*vd+r && chain_out.pwrite_uowner==2);
+      CHECK((t>=20 || r!=row0) && w.paddress==2*vd+r && chain_out.powner==2);
       std::array<unsigned char,bytes> data,mask;
       std::memcpy(data.data(),&w.pdata,bytes); std::memcpy(mask.data(),&w.pmask,bytes);
       for (unsigned i=0;i<bytes;++i) {

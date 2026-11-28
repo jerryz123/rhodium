@@ -15,13 +15,13 @@ import:
   "../common/row-types.rhdl" open
   "beat-packer.rhdl".VectorBeatPacker
   "load-return.rhdl".VectorLoadReturn
-  "instruction-queue.rhdl" open
+  "address-queue.rhdl" open
   "../common/memory-command.rhdl" open
   "../../register-file.rhdl".VectorRegisterWrite
   "../common/memory-route.rhdl" open
 
 
-/* The VLIQ and VSIQ independently allocate instructions, install address
+/* The VLAQ and VSAQ independently allocate instructions, install address
    cursors, and discharge physical obligations on ordered replies. */
 sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~trace_isa: trace_isa :: maybe(String) = #false):
   def dlen = vector_dlen(vlen)
@@ -50,6 +50,8 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
   interface stored(Valid(ReturnedRow(xlen, vlen, Owner)), ~role: producer)
   output resident: Vec(MemoryPaths.length(), Bool)
   inst load_return(VectorLoadReturn(xlen, vlen, Owner))
+  input drain_active: Bool
+  load_return.drain_active <== drain_active
   input drain_owner: Owner
   load_return.drain_owner <== drain_owner
   load_setup |> load_return.setup
@@ -77,9 +79,9 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
   def RequestCount = Bits(index_width(MemoryRequestEntries + 1))
   reg awaiting(~init: literal(Vec(MemoryPaths.length(), RequestCount), 0))
   reg independent_load(Bool)
-  inst vliq(VectorMemoryInstructions(xlen, vlen, slots, ~store: #false))
-  inst vsiq(VectorMemoryInstructions(xlen, vlen, slots, ~store: #true))
-  def queues = for InstanceArray (q in [vliq, vsiq]): q
+  inst vlaq(VectorAddressQueue(xlen, vlen, slots, ~store: #false))
+  inst vsaq(VectorAddressQueue(xlen, vlen, slots, ~store: #true))
+  def queues = for InstanceArray (q in [vlaq, vsaq]): q
   def start :: Array.later_of(Endpoint) = for Array (i in MemoryPaths): queues[i].issue
   for (i in MemoryPaths):
     enqueue[i] |> queues[i].enqueue
@@ -94,7 +96,7 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
   output scalar_conflict: Bool
   def conflicts = for List (path in MemoryPaths):
     def q = queues[path]
-    (Bool(path == StorePath) ||| scalar_probe.bits.store) & any(for List (i in 0..2): q.live_mask.as_vec(Bool)[i] & (!scalar_probe.valid ||| physical_overlap(xlen, scalar_probe.bits, q.spans[i])))
+    (Bool(path == StorePath) ||| scalar_probe.bits.store) & any(for List (i in 0..AddressQueueEntries): q.live_mask.as_vec(Bool)[i] & (!scalar_probe.valid ||| physical_overlap(xlen, scalar_probe.bits, q.spans[i])))
   scalar_conflict <== any(conflicts)
   def first_rows = for List (i in MemoryPaths):
     def launch = start[i]
@@ -157,7 +159,45 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
   reg gathered(~init: Bool(#false))
   reg operand_row(RowAddress)
   reg operand_offset(Bits(index_width(vlen+1)))
-  def normal_load = admitted_rows(masks, LoadPath)
+  /* Without a predicate or index, the AQ alone knows the enabled byte
+     interval. Walk logical rows and use the same displacement packing as
+     predicate-driven loads, including a trailing partial physical beat. */
+  def incoming = load_start.bits.issue
+  def geometry = incoming.command
+  reg autonomous(Bool)
+  reg offset(Bits(index_width(vlen+1)))
+  reg final_byte(Bits(index_width(vlen+1)))
+  reg first_mask(Bits(row_bytes))
+  reg row(RowAddress)
+  reg displacement(StoreLane)
+  def final_row = offset[index_width(row_bytes)..index_width(vlen+1)] === final_byte[index_width(row_bytes)..index_width(vlen+1)]
+  def enabled_bytes = first_mask & mux(final_row, !Bits(row_bytes)(0) >> !final_byte[0..index_width(row_bytes)], !Bits(row_bytes)(0))
+  def logical_row = PreparedRow(vlen):
+    row: row
+    offset: offset
+    span: enabled_bytes
+    enabled: enabled_bytes
+    data: Bits(dlen)(0)
+    last: final_row
+  inst range_packer(VectorBeatPacker(vlen, ~store: #false))
+  range_packer.displacement <== displacement
+  range_packer.elementwise <== Bool(#false)
+  range_packer.eew <== Bits(2)(0)
+  def load_origin = inject_interface(Valid(Bool), ~valid: occupied[LoadPath], ~bits: Bool(#true))
+  def Array(range_origin, operand_origin) = load_origin |> fork_valid(2)
+  def range_rows = range_origin |> filter_valid(_cursor => sequencing[LoadPath] & autonomous) |> map_valid(_cursor => logical_row) |> offer_decoupled()
+  range_rows |> range_packer.source
+  when (load_start.fire()):
+    autonomous <== autonomous_rows(incoming.kind, geometry.masked, geometry.layout.nf)
+    offset <== geometry.data.begin[0..index_width(vlen+1)].align_down(row_bytes)
+    final_byte <== geometry.data.end[0..index_width(vlen+1)] - Bits(index_width(vlen+1))(1)
+    first_mask <== !Bits(row_bytes)(0) << geometry.data.begin[0..index_width(row_bytes)]
+    row <== geometry.layout.base + geometry.data.begin[index_width(row_bytes)..index_width(vlen+1)].zext(RowAddress.packed_width())
+    displacement <== geometry.displacement
+  elsewhen (range_rows.fire()):
+    first_mask <== !Bits(row_bytes)(0)
+    row <== row + RowAddress(1)
+    offset <== offset + Bits(index_width(vlen+1))(row_bytes)
   def gathering = gathered & sequencing[LoadPath]
   def path = stream_store.as_bits()
   def scattering = stream_live & stream_store & sequencing[StorePath]
@@ -173,11 +213,11 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
     last: Bool(#true)
   def gather_offer = inject_interface(Valid(PreparedBeat(vlen)), ~valid: gathering, ~bits: element_beat)
   def selected_load = grant_merge(vec([!gathering, gathering]).into(MaybeOneHot(2)),
-                                  Array(normal_load, gather_offer |> offer_decoupled()))
-  // Every eligible load already has an installed address cursor. Join its
-  // provenance with the selected mask/element without adding a readiness gate.
-  def load_origin = inject_interface(Valid(Bool), ~valid: Bool(#true), ~bits: Bool(#true))
-  def admitted_load = Array(selected_load, load_origin |> offer_decoupled()) |> zip_flow(beat, _origin => beat)
+                                  Array(admitted_rows(masks, LoadPath), gather_offer |> offer_decoupled()))
+  // Masked and checked requests depend on both the VRF/checker and the cursor.
+  // An autonomous request derives its byte range from the address cursor alone.
+  def with_operands = Array(selected_load, operand_origin |> offer_decoupled()) |> zip_flow(beat, _origin => beat)
+  def admitted_load = grant_merge(vec([!autonomous, autonomous]).into(MaybeOneHot(2)), Array(with_operands, range_packer.beat))
   def load_rows = admitted_load |> gate_flow(load_room ||| !admitted_load.bits.enabled.any())
   def scatter_beat = scatter.operand |> map_valid(_data => element_beat) |> offer_decoupled()
   def admitted_store = grant_merge(vec([!scattering, scattering]).into(MaybeOneHot(2)),

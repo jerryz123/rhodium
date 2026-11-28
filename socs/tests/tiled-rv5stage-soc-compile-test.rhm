@@ -26,7 +26,7 @@ check:
   tiled_default.tiled_rv5stage_soc_core_profile.isa_profile.misa_extensions ~is profiles.single_core_rv5stage_soc_core_profile.isa_profile.misa_extensions
   tiled_default.default_tiled_soc_config.clocks.timebase_period_cycles ~is 100
   compiled.llcs.map(fun (llc): llc.home_params.home.node_id) ~is [32, 33, 34, 35]
-  compiled.llcs.map(fun (llc): llc.home_params.home.max_outstanding) ~is [2, 2, 2, 2]
+  compiled.llcs.map(fun (llc): llc.home_params.home.max_outstanding) ~is [8, 8, 8, 8]
   compiled.harts.length() ~is 8
   description.model ~is "Rhodium Tiled RV5Stage SoC"
   description.compatible ~is ["rhodium,tiled-rv5stage-soc"]
@@ -83,7 +83,7 @@ check:
   compiled.llc_config.addressing === compiled.address_layout ~is #true
   compiled.llc_config.sets ~is 16
   compiled.llc_config.ways ~is 4
-  compiled.llc_config.transaction_slots ~is 2
+  compiled.llc_config.transaction_slots ~is 8
 
 check:
   compiled.home_map.entry(0x1000).target_node_id ~is 36

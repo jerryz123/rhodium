@@ -37,7 +37,7 @@ import:
   lib("cores/common/vector/bundles.rhdl") open
   lib("cores/common/vector/precheck.rhdl") open
   lib("cores/common/vector/distributed/common/memory-route.rhdl") open
-  lib("cores/common/vector/distributed/mem/instruction-queue.rhdl").RowFootprint
+  lib("cores/common/vector/distributed/mem/address-queue.rhdl").RowFootprint
   lib("cores/common/mmu/vector.rhdl") open
   lib("riscv/isa/vector-profile.rhm") open
   lib("riscv/rtl/vector.rhdl") open

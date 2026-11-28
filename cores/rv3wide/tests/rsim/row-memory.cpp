@@ -1332,7 +1332,17 @@ int main() {
     CHECK((addresses==std::vector<Word>{dst,out,src,out+16}));
     send(store(24),out); drain(); CHECK(stored.at(out)==stored.at(dst));
 
-    // VSSeq has already captured the bytes, but VSIQ still owns the ACK.
+    // Four disjoint stores may issue before the first ACK, even though VSSeq
+    // has only one active operand cursor. All four must eventually write their bytes.
+    state(0,0,0,16); addresses.clear(); block_returns=true;
+    const std::vector<Word> disjoint_stores{0x56000,0x56040,0x56080,0x560c0};
+    for (auto addr:disjoint_stores) send(store(8),addr);
+    for (unsigned i=0;i<32;++i) step();
+    CHECK(pending.size()==4 && addresses==disjoint_stores);
+    block_returns=false; drain();
+    for (auto addr:addresses) CHECK(stored.at(addr)==stored.at(src));
+
+    // VSSeq has already captured the bytes, but VSAQ still owns the ACK.
     // A waiting load observes only bytes enabled by the older masked store.
     stored[pred]={0x0ff0,0,0,0}; stored[out]=initial;
     send(load(0),pred); drain();
@@ -2512,7 +2522,7 @@ int main() {
       send(op(0,dependent?24:8,1,3,28));
       CHECK(cycles==first_launch+1 && execute_launch_cycle==first_launch);
       while(execute_launch_cycle==first_launch) {
-        eval(); CHECK(!request_ready); step(); // also on the permutation handoff edge
+        eval(); CHECK(request_ready); step(); // VXDQ can buffer more work while VXSeq is occupied.
       }
       eval(); CHECK(request_ready);
       drain();
@@ -3420,5 +3430,29 @@ int main() {
       const Row& expected=stored.contains(addr & ~Word(15)) ? stored.at(addr & ~Word(15)) : initial;
       CHECK(get_lane(out,i,1)==(expected[(addr%16)/4]>>(8*(addr%4)) & 255u));
     }
+    // B may issue its address while VLSeq is still waiting for A's reply.
+    // C is independent but cannot skip B at the head of VXDQ to reach VXSeq.
+    cycle_limit=cycles+160;
+    state(0,0,0,16); addresses.clear(); reads_alu.clear(); block_returns=true;
+    send(load(8),src); send(load(9),src+64); send(op(0,16,17,0,18));
+    for (unsigned t=0;t<12;++t) step();
+    CHECK((addresses==std::vector<Word>{src,src+64}) && pending.size()==2 && reads_alu.empty());
+    block_returns=false; drain(); CHECK(!reads_alu.empty());
+
+    // Drive real dispatch with one VLSeq and no replies. All four VLAQ owners
+    // must reach L1D. Releasing responses must preserve each owner's data.
+    cycle_limit=cycles+180;
+    state(0,0,0,16); addresses.clear(); load_write_cycles.clear(); block_returns=true;
+    for (unsigned i=0;i<4;++i) {
+      stored[src+64*i].fill(0x11111111u*(i+1));
+      send(load(8+i),src+64*i);
+    }
+    for (unsigned t=0;t<16;++t) step();
+    CHECK(pending.size()==4 && load_write_cycles.empty());
+    CHECK((addresses==std::vector<Word>{src,src+64,src+128,src+192}));
+    block_returns=false; drain();
+    for (unsigned i=0;i<4;++i) send(store(8+i),out+64*i);
+    drain();
+    for (unsigned i=0;i<4;++i) CHECK(stored.at(out+64*i)==stored.at(src+64*i));
   });
 }

@@ -147,7 +147,7 @@ configuration and architectural description come from the same selected preset.
 | Shape | Harts | Normal-memory termination | Coherence structure |
 | --- | ---: | --- | --- |
 | `MiniSoC` | 1 | Internal 64 KiB `CHIRam` | Forwarding HN-F, BootROM, ACLINT, PLIC, and UART on one physical router |
-| `SingleCoreSoC` | 1 | External line-capable SN-F; 1 GiB window | One 512-set, eight-way inclusive LLC with four Home transaction slots, BootROM, ACLINT, PLIC, and UART on one physical router |
+| `SingleCoreSoC` | 1 | External line-capable SN-F; 1 GiB window | One 512-set, eight-way inclusive LLC with eight Home transaction slots, BootROM, ACLINT, PLIC, and UART on one physical router |
 | `TiledSoC` | 4 in `tiled4core` (5×3), 8 in `tiled8core` (5×4) | One external line-capable SN-F channel; 1 GiB window | Four inclusive LLC slices plus BootROM and routed memory, device-home, ACLINT, PLIC, and UART tiles |
 
 Each shape accepts RV5Stage, RV2Wide, RV3Wide, or Spike. The selected
@@ -374,7 +374,7 @@ table therefore trap in RV5Stage instead of entering CHI without a Home.
 the inclusive LLC geometry and one implementation profile. The RV5Stage
 binding's default profile selects separate 16 KiB, four-way
 set-associative instruction and data caches, each with 64 sets and 64-byte
-lines. The default also selects a 512-set, eight-way (256 KiB) LLC with four
+lines. The default also selects a 512-set, eight-way (256 KiB) LLC with eight
 coherent transaction slots and exports line-capable `CHISNChannels` for SN-F
 NodeID 9 over the 1 GiB range
 `0x80000000..0xbfffffff`. The SoC contains no RAM, fragmenter, or simulator
@@ -406,7 +406,7 @@ and the ordinary coherent FESVR host; it does not bypass the SoC memory system.
 
 [`mini-rv5stage-soc.rhdl`](configs/mini-rv5stage-soc.rhdl) selects RV5Stage for the small,
 self-contained [`MiniSoC`](mini-soc/main.rhdl) used for compact RTL and physical-design experiments. It
-uses a 64 KiB range, replaces the inclusive LLC with the forwarding `CHIHNF`,
+uses a 64 KiB range, replaces the inclusive LLC with the single-transaction forwarding `CHIHNF`,
 and terminates the native memory boundary directly in an on-chip, line-capable
 `CHIRam`. Its RV64 instruction and data caches are each explicitly 32-set,
 one-way direct-mapped caches with 2 KiB of line storage; SingleCoreRV5StageSoC's larger
@@ -513,7 +513,7 @@ NodeIDs and striped service base; tiles contain no system-wide
 identity table or runtime routing-mode selector. A `HartTile` attaches one
 selected hart's instruction RN-I, data RN-F, and uncached RN-I ports. A
 `LLCTile` attaches both sides of one `CHIInclusiveHNF`. `LLCGeometry` selects
-one through 64 transaction slots per slice and defaults to two. The `MemoryTile`
+one through 64 transaction slots per slice and defaults to eight. The `MemoryTile`
 exports `TiledSoC.memory`, a single `CHISNChannels` port in the `icn` role.
 Its external SN-F must support one-byte through 64-byte `ReadNoSnp`,
 `WriteNoSnpFull`, and `WriteNoSnpPtl` transfers, with DBID-associated write data

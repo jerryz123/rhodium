@@ -418,7 +418,7 @@ int main() {
       while (requests == before) step();
       send(0x02008427);
       while (requests != before + 2) step();
-      CHECK(acknowledgements == before+1); // VSIQ was not replaced before A's ACK.
+      CHECK(acknowledgements == before+1); // VSAQ was not replaced before A's ACK.
       send(younger);
       CHECK(acknowledgements == before + 2 && requests == acknowledgements && retire_cycle > ack_at);
       if (younger == 0x0000a503u) CHECK(returned == 0x33333333);

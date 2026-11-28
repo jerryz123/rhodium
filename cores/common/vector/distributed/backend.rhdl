@@ -5,7 +5,7 @@
 import:
   lib("cores/common/mmu/vector.rhdl") open
   "common/paths.rhm" open
-  "mem/instruction-queue.rhdl".RowFootprint
+  "mem/address-queue.rhdl".RowFootprint
   "../service.rhdl".VectorExecutionService
   "frontend/admission.rhdl".DistributedVectorAdmission
   "../../cosim-source.rhm".describe_cosim_signals
@@ -73,7 +73,7 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
   inst special(VectorSpecialSequencer(xlen, vlen, slots))
   inst row_alu(VectorRowExecute(xlen, vlen, slots, ~fp32: fp32, ~fp16: fp16))
   inst claims(DistributedVectorScoreboard(xlen, vlen, slots))
-  inst paths(DistributedVectorDispatch(xlen, slots))
+  inst paths(DistributedVectorDispatch(xlen, vlen, slots))
   claims.next_owner <== instructions.allocate_id
   claims.drain_owner <== instructions.oldest_id
   rows.oldest_owner <== instructions.oldest_id
@@ -81,7 +81,6 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
   claims.macro_load <== instructions.load_owners
   claims.macro_store <== instructions.store_owners
   claims.macro_groups <== instructions.destinations
-  claims.macro_issued <== instructions.closed
 
   /* Allocate once at ordered dispatch. The issue path carries that owner
      through backpressure; completion slots remain per-beat resources. */
@@ -100,43 +99,46 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
   def descriptor :: VectorDescriptor(xlen) = candidate.descriptor
   def route = memory_route(xlen, vlen, descriptor, candidate.certified)
   def row_memory_eligible = route === MemoryRoute.Direct
-  def native_indices = row_memory_eligible & vector_indexed_memory(descriptor.control)
-  def checked_indices = (route === MemoryRoute.Checked) & vector_indexed_memory(descriptor.control)
   def control = descriptor.control
   def no_work = mux(control.memory, route === MemoryRoute.Empty, vector_dispatch_empty(xlen, vlen, descriptor))
   instructions.no_work <== no_work
-  def compute = control.dispatch_kind === VectorDispatchKind.Execute
-  def compute_vps = compute & (control.vps =/= VectorVpsUse.None)
-  def needs_special = native_indices ||| checked_indices ||| (compute_vps & !no_work)
-  reg checking(~init: Bool(#false))
-  // Reserve the index stream at dispatch, before a younger memory operation
-  // can occupy the row engine that the oldest precise checker must drain.
-  def blocked = (needs_special & !special.install_ready) ||| (special.busy & checking & row_memory_eligible)
   reg checker_reserved(~init: Bool(#false))
-  def tagged = allocated |> filter_flow(_entry => !no_work) |> gate_flow(!checker.busy & !checker_reserved & !blocked)
-  observe_transfer(tagged) |> filter_valid(_entry => needs_special) |> special.install
-  when (special.install.valid): checking <== checked_indices
-  when (allocated.fire() & !no_work & compute):
-    def unit = resolve_row_unit(xlen, vlen, descriptor, fp32, fp16)
-    assert(unit =/= RowUnit.Unavailable, "distributed_vector_execute_has_route")
-  instructions.reclaimed |> paths.reclaimed
-  paths.memory_busy <== rows.unavailable
+  def tagged = allocated |> filter_flow(_entry => !no_work) |> gate_flow(!checker.busy & !checker_reserved)
+  tagged |> paths.ingress
+  paths.direct <== row_memory_eligible
+  paths.window_pages <== window_pages
+  checker.launch |> paths.checked_address
+  def commands = paths.address |> demux_flow(2, e => e.issue.command.store)
+  for (i in MemoryPaths): commands[i] |> rows.launch[i]
   claims.allocation_empty <== no_work
-  def allocating :: VectorCheckedDescriptor(xlen) = tagged.bits.checked
-  claims.allocation_native <== no_work ||| !allocating.descriptor.control.memory ||| row_memory_eligible
-  def Array(ordered, operands) = tagged |> atomic_fork(2)
-  ordered |> filter_flow(_entry => !row_memory_eligible) |> paths.ingress
-  /* Fork one accepted direct descriptor into its VRF work and physical reservation. */
-  fun direct(entry :: VectorDispatchEntry(xlen, slots)) :~ MemoryIssue(xlen, vlen, slots):
-    direct_memory_issue(xlen, vlen, slots, entry)
-  def grants = vec([checker.busy, !checker.busy]).into(MaybeOneHot(2))
-  def Array(datapath, addresses) = operands |> filter_flow(_entry => row_memory_eligible) |> atomic_fork(2)
-  def direct_prepare = datapath |> map_flow(entry => direct(entry))
-  grant_merge(grants, Array(checker.prepare, direct_prepare)) |> rows.prepare
+  claims.allocation_native <== no_work ||| !control.memory ||| row_memory_eligible
+  claims.allocation_precise <== !no_work & !candidate.certified
+
+  /* Issue only the VXDQ head. Install VPS on the very same transfer as the
+     sequencer (or precise checker) consuming its indices or operands. */
+
+  def head = paths.work.bits
+  def issuing :: VectorDescriptor(xlen) = head.entry.checked.descriptor
+  def arithmetic = !issuing.control.memory
+  def indexed = vector_indexed_memory(issuing.control)
+  def uses_special = mux(arithmetic, issuing.control.vps =/= VectorVpsUse.None, indexed)
+  def eligible = paths.work |> gate_flow(!uses_special ||| (special.install_ready & (arithmetic ||| !special.busy)))
+  def work = eligible |> map_flow(w => w.entry)
+  observe_transfer(work) |> filter_valid(_entry => uses_special) |> special.install
+  reg checking(~init: Bool(#false))
+  when (special.install.valid): checking <== !arithmetic & !head.direct
+  def Array(native_compute, memory_work) = work |> demux_flow(2, _e => !arithmetic)
+  def Array(checked_head, native_head) = memory_work |> demux_flow(2, _e => head.direct)
+  def operands = native_head |> map_flow(e => direct_memory_issue(xlen, vlen, slots, e))
+  def direct_work = operands |> demux_flow(2, e => e.command.store)
+  def checked_work = checker.prepare |> demux_flow(2, e => e.command.store)
+  for (i in MemoryPaths): Array(direct_work[i], checked_work[i]) |> arbiter() |> rows.prepare[i]
+  when (native_compute.fire()):
+    def unit = resolve_row_unit(xlen, vlen, issuing, fp32, fp16)
+    assert(unit =/= RowUnit.Unavailable, "distributed_vector_execute_has_route")
   checker.checked_element |> rows.checked_element
   rows.stream_live <== checker.stream_live
   rows.stream_store <== checker.store
-  claims.allocation_precise <== !no_work & !allocating.certified
   special.chain <=> claims.special_reads
   special.permutation |> row_alu.permutation
   special.reduction <=> row_alu.reduction
@@ -144,29 +146,17 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
   native_rows |> map_flow(r => r.data) |> rows.indices
   checked_rows |> checker.indices
   rows.store_reads <=> claims.store_reads
-  claims.head_owner <== vec(for List (i in DispatchPaths): if i == ExecutePath | row_alu.chain.owner | paths.heads[i].bits.owner)
-  /* Both queues snapshot the certified physical envelope at ordered dispatch,
-     before either cursor or its peer can issue a physical request. */
-  fun physical_command(entry :: VectorDispatchEntry(xlen, slots)) :~ MemoryLaunch(xlen, vlen, slots):
-    def d = entry.checked.descriptor
-    MemoryLaunch(xlen, vlen, slots):
-      issue: direct(entry)
-      pages: mux(d.precertified, d.certificate.pages(), window_pages)
-      service: VectorMemoryService.Cached
-  def admitted = addresses |> map_flow(entry => physical_command(entry))
-  def commands = grant_merge(grants, Array(checker.launch, admitted)) |> demux_flow(2, entry => entry.issue.command.store)
-  for (i in MemoryPaths): commands[i] |> rows.launch[i]
-  def ordinary = for Array (i in MemoryPaths): paths.heads[i] |> gate_flow(claims.head_allowed[i])
-  claims.head_issued <== vec(for List (i in DispatchPaths): if i == ExecutePath | Bool(#false) | paths.heads[i].fire())
   rows.stream_owner <== checker.owner
 
   /* Each row engine owns its reads and returns. The register view arbitrates physical ports. */
 
   interface scalar_probe(Valid(RowFootprint()), ~role: consumer)
-  scalar_probe |> rows.scalar_probe
+  def Array(resident_probe, dispatch_probe) = scalar_probe |> fork_valid(2)
+  resident_probe |> rows.scalar_probe
+  dispatch_probe |> paths.scalar_probe
   output scalar_conflict: Bool
-  scalar_conflict <== rows.scalar_conflict ||| claims.checked_live ||| (scalar_probe.bits.store & admission.loads_pending) ||| admission.stores_pending
-  native_can_follow <== !claims.checked_live & rows.physical_pending
+  scalar_conflict <== paths.scalar_conflict ||| rows.scalar_conflict ||| claims.checked_live ||| (scalar_probe.bits.store & admission.loads_pending) ||| admission.stores_pending
+  native_can_follow <== !claims.checked_live & (paths.address.valid ||| rows.physical_pending)
   rows.chain <=> claims.mem_chain
   row_alu.chain <=> claims.alu_chain
   // WB can count the tail grant only when no other VRF client can take a
@@ -175,9 +165,9 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
   inst calendar(WritebackCalendar(1, ProductWriteDelay))
   calendar.query_client[0] <== Bits(1)(0)
   calendar.pause <== registers.load_turn
-  row_alu.read_credit <== claims.head_allowed[ExecutePath] & !contested
+  row_alu.read_credit <== claims.execute_allowed & !contested
   row_alu.fixed_write_credit <== calendar.registered_free[0] & !registers.load_turn
-  (paths.native_execute |> map_flow(entry => VectorInstruction(xlen, InstructionId)):
+  (native_compute |> map_flow(entry => VectorInstruction(xlen, InstructionId)):
      context: entry.owner
      descriptor: entry.checked.descriptor
   ) |> row_alu.launch
@@ -195,8 +185,8 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
      reads_accumulator: row.sources.accumulator
      reads_mask: row.reads_v0
      mask_row(~format: "unsigned"): row.mask_row
-     ordering_wait: !claims.head_allowed[ExecutePath]
-  ) |> gate_flow(claims.head_allowed[ExecutePath]) |> registers.execute_read
+     ordering_wait: !claims.execute_allowed
+  ) |> gate_flow(claims.execute_allowed) |> registers.execute_read
   registers.execute_result |> row_alu.operands
   def reservation_width = calendar.reserve[0].bits.type.packed_width()
   calendar.query_delay[0] <== row_alu.reserve.bits.zext(reservation_width)
@@ -245,10 +235,11 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
 
   // Native memory has priority for a simultaneous translation-window release.
   def sequencing_done = Array(rows.issued |> filter_valid(event => !event.checked) |> map_valid(event => event.owner), inject_interface(Valid(InstructionId), ~valid: checker.release_window, ~bits: checker.owner)) |> valid_arbiter()
-  def check = ordinary |> arbiter()
-  check |> gate_flow((check.bits.owner === instructions.oldest_id) & memory_drained & !rows.busy) |> checker.start
-  when (tagged.fire() & (route === MemoryRoute.Checked)): checker_reserved <== Bool(#true)
-  elsewhen (checker.start.fire()): checker_reserved <== Bool(#false)
+  checked_head |> gate_flow((checked_head.bits.owner === instructions.oldest_id) & memory_drained & !paths.address.valid & !rows.busy) |> checker.start
+  // An empty VXDQ can forward the checked head on its allocation edge.
+  // Reserve only the interval between allocation and checker acceptance.
+  when (checker.start.fire()): checker_reserved <== Bool(#false)
+  elsewhen (tagged.fire() & (route === MemoryRoute.Checked)): checker_reserved <== Bool(#true)
   special.discard <== checker.discard_indices
   when (allocation.valid):
     trace_instructions[instructions.allocate_id] <== VectorTraceInstruction(xlen):

@@ -45,7 +45,7 @@ same contained pipeline config; there is still only one execution implementation
 Fetch remains eight bytes per cycle, issue/retirement support three lanes, and the
 GPR file is 4R3W. Pipeline payloads come from `cores/superscalar/bundles.rhdl`.
 RV3Wide's [row-banked L1D](../common/cache/banked-l1d/README.md) reads a double-XLEN row per way: 64 bits on RV32 and 128 bits on RV64.
-It has four interchangeable miss slots: independent loads to distinct sets can
+It has eight interchangeable miss slots: independent loads to distinct sets can
 fill out of order, while authorized load responses remain in request order.
 The LSU still issues one native word per request; a wider row does not issue
 two scalar loads together. Page-table reads, misaligned fragments, and
@@ -56,25 +56,29 @@ Vector-enabled RV3Wide uses a 64-row 3R1W vector register file. Its row width
 `2*N` and `2*N+1`, low bits first. The load, store, and execute sequencers each have an independent read of the two-row v0 shadow.
 All see concurrent masked writes. VXSeq receives the predicate with its synchronous operands; load and store sample it during row preparation.
 
-WB has one registered vector admission credit. A descriptor dispatches on its
-acceptance edge if the required sequencers are ready and no range check is
-needed. Otherwise the same latch holds it for checking or for dispatch; WB
-cannot reuse that credit until the cycle after it drains. Acceptance alone
+WB has one registered vector admission credit. A descriptor can dispatch on its
+acceptance edge when its destination accepts it and no range check is needed.
+Otherwise the latch holds it for checking or dispatch; WB cannot reuse the
+credit until the cycle after it drains.
+Direct memory reserves the one-entry pipelined memory dispatch queue (VMDQ)
+and the four-entry datapath dispatch queue (VXDQ) together. Arithmetic needs
+only VXDQ. VMDQ drains into VLAQ or VSAQ independently of VXDQ.
+Acceptance alone
 does not authorize a faultable vector memory instruction or its younger scalar
-store. Checked instructions dispatch in program order into one-entry contexts:
+store. Checked instructions dispatch in program order to these resources:
 
 | Instruction | Memory-side entry | VRF-side sequencer |
 |---|---|---|
-| Load | VLIQ: through delivery of the final cache response | VLSeq: through final write or skip |
-| Store | VSIQ: through the final cache acknowledgement | VSSeq: through final operand capture or skip |
+| Load | VLAQ: through delivery of the final cache response | VLSeq: through final write or skip |
+| Store | VSAQ: through the final cache acknowledgement | VSSeq: through final operand capture or skip |
 | Execute | — | VXSeq: through final irrevocable issue |
 
 A native indexed access also reserves the special sequencer (VPS) for its
 index stream; a native register permutation reserves VPS together with VXSeq.
-A memory instruction reserves its address and VRF entries together. If any required entry is
-busy, younger instructions cannot pass the blocked dispatch. Already admitted
-instructions progress independently; a result may still be in flight after
-its sequencer is free. There are no instruction FIFOs ahead of the sequencers.
+A certified memory instruction can enter its address queue while the VRF sequencer
+is busy. Only the VXDQ head can start a sequencer, so a younger arithmetic instruction cannot pass a load waiting to start VLSeq.
+Already admitted instructions progress independently; a result may still be in flight after
+its sequencer is free. There are no per-sequencer input FIFOs.
 Certified ordinary unit-stride loads and stores use a separate path between L1D
 and the VRF when the base is element-aligned, whether masked or unmasked.
 Loads assemble cache beats into register rows; stores
@@ -127,15 +131,19 @@ Overlapping data/index groups stay on the precise path.
 Each row enables only bytes selected by `vstart`, `vl`, and the element predicate;
 a fully disabled physical beat advances without issuing a cache request. A failed range check falls back to
 precise element accesses rather than raising a fault on a masked-off address.
-VLIQ and VSIQ advance separate address cursors over one L1D port. Loads normally
+VLAQ and VSAQ each hold four physical memory instructions and advance separate
+address cursors over one L1D port. VLSeq holds one active destination through VRF writeback. A younger unmasked,
+single-field contiguous load can issue requests and buffer replies without taking
+that destination. Loads normally
 reserve one of five return slots; stores independently track up to five outstanding
 ACKs. The older eligible cursor wins; an already offered request keeps its grant
 under backpressure. An oldest, direct, unmasked, single-field contiguous
 cached load can use the sixteen-entry request metadata FIFO without reserving
 return slots. A maximum-size group spans 16 rows, or 17 physical beats if
 displaced. The VLSU still buffers only five returned beats. Admission uses registered
-occupancy, not same-cycle credit release. The two start ports are independent: a blocked start cannot
-hide an eligible head of the other kind. Delivery of the final physical load reply
+occupancy, not same-cycle credit release. Once in VLAQ or VSAQ, a blocked
+address head cannot hide an eligible head of the other kind. VMDQ itself
+drains in order. Delivery of the final physical load reply
 to the VLSU return buffer ends the memory dependency; it need not wait for a VRF
 grant. VLSeq has no return FIFO: it takes a formatted result only when older
 VRF accesses permit the write and the single port grants it. A certified load and store can overlap in either order

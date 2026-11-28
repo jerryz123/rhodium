@@ -28,6 +28,7 @@ sync_circuit LoadSelectorFixture(xlen :: XLen):
   vlsu.stream_live <== Bool(#true)
   vlsu.stream_store <== Bool(#false)
   vlsu.oldest_owner <== Owner(0)
+  vlsu.drain_active <== Bool(#true)
   vlsu.drain_owner <== Owner(0)
   vlsu.trace_instructions <== literal(Vec(4, VectorTraceInstruction(xlen)), 0)
   for (port in [vlsu.scalar_probe, vlsu.enqueue[1], vlsu.store_data, vlsu.indices, vlsu.splat, vlsu.load_setup, vlsu.scatter.operand]):

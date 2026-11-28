@@ -4,7 +4,7 @@
 
 import:
   lib("cores/common/vector/backend-kind.rhm") open
-  lib("cores/common/vector/distributed/mem/instruction-queue.rhdl").RowFootprint
+  lib("cores/common/vector/distributed/mem/address-queue.rhdl").RowFootprint
   lib("cores/common/vector/distributed/backend.rhdl").DistributedVectorBackend
   "../common/vector/profile.rhm".DefaultVectorInstructionOwners
   lib("cores/common/vector/service.rhdl").VectorExecutionService

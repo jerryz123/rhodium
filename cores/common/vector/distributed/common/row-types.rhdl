@@ -145,7 +145,7 @@ bundle SplatPosition(dlen :: PosInt):
   lane: Bits(index_width(vector_row_bytes(dlen)))
   eew: Bits(2)
 
-/* VSIQ holds the requested VS3 row until its element's final grant. VSSeq
+/* VSAQ holds the requested VS3 row until its element's final grant. VSSeq
    owns the retained data and marks it valid only for the requested row. */
 interface ScatterOperand(dlen :: PosInt):
   role issuer

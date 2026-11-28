@@ -8,7 +8,7 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("rhodium/frontend/foundation.rhm").elaborate
 
-def queues = elaborate(DistributedVectorDispatch(XLen.X64, 4))
+def queues = elaborate(DistributedVectorDispatch(XLen.X64, 256, 4))
 def program = elaborate(SuperscalarVectorFixture(~vlen: 128, ~vector_backend: VectorBackendKind.Distributed))
 fun geometry(xlen, vlen):
   elaborate(SuperscalarVectorFixture(~xlen: xlen, ~vlen: vlen, ~vector_backend: VectorBackendKind.Distributed))

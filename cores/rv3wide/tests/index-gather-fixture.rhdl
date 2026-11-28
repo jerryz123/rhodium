@@ -3,7 +3,7 @@
 
 import:
   lib("cores/common/mmu/vector.rhdl") open
-  lib("cores/common/vector/distributed/mem/instruction-queue.rhdl").RowFootprint
+  lib("cores/common/vector/distributed/mem/address-queue.rhdl").RowFootprint
   lib("cores/common/vector/bundles.rhdl") open
   lib("cores/common/vector/register-file.rhdl").VectorRegisterWrite
   lib("cores/common/vector/distributed/common/memory-route.rhdl") open
@@ -66,7 +66,7 @@ sync_circuit IndexGatherFixture(xlen :: XLen):
   scan.pages <== pages
   scan.check <=> check
   scan.splat |> rows.splat
-  scan.prepare |> rows.prepare
+  (scan.prepare |> demux_flow(2, work => work.command.store)) <=> rows.prepare
   scan.checked_element |> rows.checked_element
   rows.stream_live <== scan.stream_live
   rows.stream_store <== scan.store
@@ -148,7 +148,7 @@ sync_circuit RowMemoryFixture(xlen :: XLen, vlen):
       crosses: issue.command.crosses
   rows.scalar_probe.bits <== vec(probes)[probe_kind]
   interface prepare(Decoupled(MemoryFixtureIssue(xlen)), ~role: consumer)
-  prepare |> trace_event("fixture/prepare") |> map_flow(i => fixture_issue(xlen, vlen, i)) |> rows.prepare
+  (prepare |> trace_event("fixture/prepare") |> map_flow(i => fixture_issue(xlen, vlen, i)) |> demux_flow(2, work => work.command.store)) <=> rows.prepare
   reg trace_instructions(Vec(4, VectorTraceInstruction(xlen)))
   when (prepare.fire()):
     trace_instructions[prepare.bits.owner] <== VectorTraceInstruction(xlen):
@@ -216,7 +216,7 @@ sync_circuit NativeIndexMemoryFixture(xlen :: XLen, vlen):
   rows.splat.valid <== Bool(#false)
   rows.splat.bits <== dont_care(SplatPosition(dlen))
   def indexed = inline_index_issue(prepare.bits.kind)
-  prepare |> gate_flow(!indexed ||| !special.busy) |> map_flow(i => fixture_issue(xlen, vlen, i)) |> rows.prepare
+  (prepare |> gate_flow(!indexed ||| !special.busy) |> map_flow(i => fixture_issue(xlen, vlen, i)) |> demux_flow(2, work => work.command.store)) <=> rows.prepare
   reg trace_instructions(Vec(4, VectorTraceInstruction(xlen)))
   when (prepare.fire()):
     trace_instructions[prepare.bits.owner] <== VectorTraceInstruction(xlen):

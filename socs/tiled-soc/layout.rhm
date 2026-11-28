@@ -4,6 +4,7 @@
 
 import:
   rhombus/meta open
+  "../platform/fabric-profiles.rhm".rhodium_soc_home_slots
   "../../noc/std/topology/rectangular-mesh.rhm".MeshCoordinate
   "../../chi/protocol/params.rhdl".CHIFlitParams
   "../../chi/protocol/fabric.rhdl".CHIHomeParams
@@ -244,7 +245,7 @@ class LLCGeometry(sets :: PosInt,
   /* Requires a power-of-two LLC set count of at least two. */
   constructor (~sets: sets :: PosInt,
                ~ways: ways :: PosInt,
-               ~transaction_slots: transaction_slots :: Int.in(1 ..= 64) = 2):
+               ~transaction_slots: transaction_slots :: Int.in(1 ..= 64) = rhodium_soc_home_slots):
     unless sets >= 2 && tiled_power_of_two(sets)
     | error(~who: #'LLCGeometry,
             "LLC set count must be a power of two of at least two")

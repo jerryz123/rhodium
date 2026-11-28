@@ -37,7 +37,7 @@ bundle MemoryIssue(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
   owner: Bits(index_width(slots))
   kind: MemoryIssueKind
 
-/* The VU issue queues contain register geometry only, never translations or
+/* An active VRF sequencer retains register geometry only, never translations or
    address-ordering state. Reconstruct a row traversal command at the reader. */
 bundle MemoryOperandWork(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
   layout: SegmentLayout()
@@ -54,7 +54,7 @@ fun operand_geometry(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, work 
   def blank :: MemoryCommand(xlen, vlen) = literal(MemoryCommand(xlen, vlen), 0)
   blank.updated(~layout: work.layout, ~data: work.data, ~predicate: work.predicate, ~displacement: work.displacement, ~seed: work.seed, ~masked: work.masked)
 
-/* Project the VRF-side half of an instruction at the dispatch fork. */
+/* Retain only the VRF-side fields when a sequencer accepts an instruction. */
 fun operand_work(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, issue :: MemoryIssue(xlen, vlen, slots)) :~ MemoryOperandWork(xlen, vlen, slots):
   def c = issue.command
   MemoryOperandWork(xlen, vlen, slots):
@@ -116,4 +116,8 @@ fun resolved_issue(kind :: MemoryIssueKind) :~ Bool:
 fun inline_index_issue(kind :: MemoryIssueKind) :~ Bool:
   kind.is_one_of(MemoryIssueKind.InlineIndex, MemoryIssueKind.InlineOrderedIndex)
 
-export MemoryOperandWork operand_work operand_geometry MemoryRoute MemoryIssueKind MemoryIssue MemoryLaunch MemoryEvent memory_route direct_memory_issue resolved_issue_kind resolved_issue inline_index_issue
+/* Plain, unmasked contiguous loads need no VRF input to produce addresses. */
+fun autonomous_rows(kind :: MemoryIssueKind, masked :: Bool, nf :: Bits(3)) :~ Bool:
+  (kind === MemoryIssueKind.Contiguous) & !masked & !nf.any()
+
+export autonomous_rows MemoryOperandWork operand_work operand_geometry MemoryRoute MemoryIssueKind MemoryIssue MemoryLaunch MemoryEvent memory_route direct_memory_issue resolved_issue_kind resolved_issue inline_index_issue

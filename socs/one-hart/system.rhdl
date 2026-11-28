@@ -37,11 +37,12 @@ import:
   "../platform/peripherals.rhdl" open
   "../platform/endpoint-params.rhdl" open
   "../platform/fabric-profiles.rhm".rhodium_soc_flit
+  "../platform/fabric-profiles.rhm".rhodium_soc_home_slots
 
 def single_core_topology = topology:
   node xbar
 
-def single_core_soc_home = CHIHomeParams("single-core-home", 5, CHINodeKind.HNF, ~max_outstanding: 4)
+def single_core_soc_home = CHIHomeParams("single-core-home", 5, CHINodeKind.HNF, ~max_outstanding: rhodium_soc_home_slots)
 def single_core_soc_device_home = CHIHomeParams("single-core-device-home", 6, CHINodeKind.HNI, ~max_outstanding: 1)
 def single_core_soc_memory_base = 0x80000000
 def single_core_soc_memory_bytes = 0x40000000

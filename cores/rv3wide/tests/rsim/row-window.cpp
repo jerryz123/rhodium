@@ -182,13 +182,14 @@ void exercise(bool store, bool masked) {
     for (unsigned i=0; i<2; ++i) {
       const rheg::Ref child{row_sites::vector_load_agen,load_request+i};
       const auto &edges=rheg::graph().edges;
-      CHECK(edges.contains({{row_sites::fixture_prepare,prepare},child}));
+      CHECK(!rheg::graph().nodes.at(child).ancestry_unknown);
+      CHECK(edges.contains({{row_sites::fixture_prepare,prepare},child})==masked);
       CHECK(edges.contains({{row_sites::fixture_launch0,load_launch},child}));
     }
   }
 }
 
-// VLIQ delivery does not release a stalled VRF write or allow owner reuse.
+// VLAQ delivery does not release a stalled VRF write or allow owner reuse.
 void single_load(bool fully_masked) {
   launch_0_in={}; memory_in={}; write_in={}; chain_in={};
   memory_in.prequest.pready=1;
@@ -225,7 +226,7 @@ void single_load(bool fully_masked) {
 // Older unaligned load and younger aligned load overwrite the same register.
 // Issue all four requests before any reply, then accept all replies with the
 // VRF blocked. Neither formatting, claims nor the write owner may switch early.
-void load_handoff() {
+void load_handoff(bool stalled_launch) {
   launch_0_in={}; prepare_in={}; memory_in={}; write_in={}; chain_in={};
   memory_in.prequest.pready=1; oldest_owner=3;
   auto offer=[&](unsigned owner,unsigned addr,unsigned length) {
@@ -239,24 +240,28 @@ void load_handoff() {
   const std::array<unsigned,2> owners{3,0}; // Wrap owner IDs at the handoff.
   offer(3,8,16);
   for(unsigned t=0;t<80 && finished<2;++t) {
-    if(t==1) offer(0,64,32); // Reserve B before A has issued even its first beat.
+    const unsigned launch_b=stalled_launch ? 20 : 1;
+    if(t==launch_b) offer(0,64,32); // Reserve B before A has issued even its first beat.
     memory_in.prequest.pready=t>=5;
-    memory_in.presponse.pvalid=requests==4 && returns<4 && t>=16;
+    memory_in.presponse.pvalid=returns<requests && t>=16 && (stalled_launch || requests==4);
     memory_in.presponse.pbits.pdata.words=data(returns);
     write_in.pready=t>=32 && t%3!=0;
     eval();
     const bool launched=launch_0_in.pvalid && launch_0_out.pready;
     const bool prepared=prepare_in.pvalid && prepare_out.pready;
-    if(t<2) CHECK(prepared);
-    if(t==1) CHECK(launched && !requests && !returns);
+    if(t==0) CHECK(prepared);
+    if(t==launch_b) CHECK(!prepared && launched);
+    if(stalled_launch && t==launch_b) CHECK(write_out.pvalid && !write_in.pready && returns==2);
+    if(!stalled_launch && t==1) CHECK(!requests && !returns);
     if(memory_out.prequest.pvalid && memory_in.prequest.pready) {
-      CHECK(requests<4 && !returns && memory_out.prequest.pbits.paddress==addresses[requests]);
+      CHECK(requests<4 && memory_out.prequest.pbits.paddress==addresses[requests]);
+      if(stalled_launch && requests==2) CHECK(write_out.pvalid && !write_in.pready && !prepare_out.pready);
       ++requests;
     }
     if(memory_in.presponse.pvalid && memory_out.presponse.pready) ++returns;
     if(delivered_out.pvalid) { CHECK(delivered<2 && delivered_out.pbits.powner==owners[delivered]); ++delivered; }
     if(write_out.pvalid) {
-      CHECK(writes<3 && chain_out.pwrite_uowner==owners[writes!=0]);
+      CHECK(writes<3 && chain_out.powner==owners[writes!=0]);
       CHECK(write_out.pbits.paddress==(writes==2 ? 17 : 16));
       const Row first{data(0)[2],data(0)[3],data(1)[0],data(1)[1]};
       CHECK(write_out.pbits.pdata.words==(writes ? data(writes+1) : first));
@@ -264,7 +269,7 @@ void load_handoff() {
     }
     if(t==30) {
       CHECK(returns==4 && !writes && !finished && write_out.pvalid && unavailable[0]);
-      CHECK(chain_out.pdraining_uvd==(1u<<16) && chain_out.punwritten_uvd==(3u<<16));
+      CHECK(chain_out.powner==3 && chain_out.punwritten_uvd==(1u<<16));
     }
     if(finished_out.pvalid) {
       CHECK(finished_out.pbits.powner==owners[finished] && writes==(finished ? 3u : 1u));
@@ -277,12 +282,66 @@ void load_handoff() {
   eval(); CHECK(!busy && finished==2 && delivered==2 && writes==3);
 }
 
+// Fill the physical queue independently of its operand sequencer. Every
+// footprint, including the upper slots, must block a scalar alias until delivery.
+void physical_queue_depth(bool store) {
+  launch_0_in={}; launch_1_in={}; prepare_in={}; memory_in={}; write_in={};
+  chain_in={}; read_result_in={}; oldest_owner=0;
+  auto& launch=store ? launch_1_in : launch_0_in;
+  auto& ready=store ? launch_1_out : launch_0_out;
+  auto& probe=store ? launch_0_in : launch_1_in;
+  auto select=[&](auto& port, bool is_store, unsigned i) {
+    port.pbits={};
+    auto& issue=port.pbits.pissue;
+    issue.powner=i%4;
+    issue.pdescriptor.pcontrol.pstore=is_store;
+    issue.pdescriptor.pmasked=!is_store;
+    mask_0_in.pdata.words.fill(~0u);
+    issue.pdescriptor.pstate.pvl=16;
+    issue.pdescriptor.pscalar=64*i;
+    issue.pdescriptor.pinstruction=8u<<7;
+  };
+  probe_kind=!store; read_in.pready=write_in.pready=memory_in.prequest.pready=1;
+  for (unsigned i=0;i<4;++i) {
+    select(launch,store,i); launch.pvalid=1;
+    eval(); CHECK(ready.pready); tick_model();
+  }
+  launch.pvalid=0;
+  for (unsigned i=0;i<=4;++i) {
+    select(probe,!store,i); eval(); CHECK(bool(probe_conflict)==(i<4));
+  }
+  for (unsigned i=0;i<4;++i) {
+    select(launch,store,i); select(probe,!store,i); offer_operands(store);
+    eval(); CHECK(prepare_out.pready && probe_conflict); tick_model(); prepare_in.pvalid=0;
+    bool sent=false,replied=false,delivered=false,finished=false;
+    for (unsigned t=0;t<40 && !(finished && delivered);++t) {
+      memory_in.presponse.pvalid=sent && !replied && t>=8;
+      memory_in.presponse.pbits.pstore=store;
+      eval(); CHECK(bool(probe_conflict)==!delivered);
+      if (memory_out.prequest.pvalid) {
+        CHECK(!sent && memory_out.prequest.pbits.paddress==64*i);
+        sent=true;
+      }
+      if (memory_in.presponse.pvalid && memory_out.presponse.pready) replied=true;
+      if (delivered_out.pvalid) {
+        CHECK(replied && !delivered && delivered_out.pbits.powner==i); delivered=true;
+      }
+      if (finished_out.pvalid) { CHECK(!finished && finished_out.pbits.powner==i); finished=true; }
+      const bool read=read_out.pvalid;
+      tick_model(); read_result_in.pvalid=read;
+    }
+    eval(); CHECK(sent && delivered && finished && !probe_conflict);
+    memory_in.presponse.pvalid=0;
+  }
+}
+
 // Both stores are queued before L1D accepts A. C aliases only B; A's ACK
 // must not release C, and neither ACK may inherit the current cursor owner.
 void store_handoff() {
   launch_0_in={}; launch_1_in={}; prepare_in={}; memory_in={}; write_in={};
   read_result_in={}; chain_in={}; oldest_owner=3; read_in.pready=1;
   unsigned requests=0, replies=0, deliveries=0, finishes=0;
+  unsigned prepared=0;
   const std::array<unsigned,3> ids{3,0,1}, addrs{0,64,64};
   for(unsigned t=0;t<80 && finishes<3;++t) {
     if(t<3) {
@@ -291,14 +350,21 @@ void store_handoff() {
       auto& cmd=launch.pbits.pissue;
       cmd.powner=ids[t]; cmd.pdescriptor.pscalar=addrs[t];
       cmd.pdescriptor.pstate.pvl=16; cmd.pdescriptor.pcontrol.pstore=t<2;
-      cmd.pdescriptor.pinstruction=8<<7; offer_operands(t<2);
+      cmd.pdescriptor.pinstruction=8<<7;
+    }
+    prepare_in.pvalid=prepared<3 && prepared<=t;
+    if(prepare_in.pvalid) {
+      auto& cmd=prepare_in.pbits; cmd={}; cmd.powner=ids[prepared];
+      cmd.pdescriptor.pscalar=addrs[prepared]; cmd.pdescriptor.pstate.pvl=16;
+      cmd.pdescriptor.pcontrol.pstore=prepared<2; cmd.pdescriptor.pinstruction=8<<7;
     }
     memory_in.prequest.pready=t>=10;
     memory_in.presponse.pvalid=(t==30 || t==40 || (t>=45 && requests==3 && replies==2));
     memory_in.presponse.pbits.pstore=replies<2;
     write_in.pready=t>=50;
     eval();
-    if(t<3) CHECK(prepare_out.pready && (t==2 ? launch_0_out.pready : launch_1_out.pready));
+    if(t<3) CHECK(t==2 ? launch_0_out.pready : launch_1_out.pready);
+    if(prepare_in.pvalid && prepare_out.pready) ++prepared;
     if(t==29) CHECK(requests==2 && !replies);
     if(memory_out.prequest.pvalid) {
       CHECK(requests<3 && memory_out.prequest.pbits.paddress==addrs[requests]);
@@ -495,7 +561,7 @@ void writeback_window(Window scenario) {
     }
     responses+=memory_in.presponse.pvalid && memory_out.presponse.pready;
     if (write_out.pvalid) {
-      CHECK(!chain_in.polder_uaccesses && grants<responses && chain_out.pwrite_uowner==2);
+      CHECK(!chain_in.polder_uaccesses && grants<responses && chain_out.powner==2);
       auto expected=data(grants);
       if (cold) {
         for (unsigned i=0;i<expected.size();++i) {
@@ -664,7 +730,7 @@ void oldest_eligible(bool hold_store) {
     }
     received+=memory_in.presponse.pvalid && memory_out.presponse.pready;
     if (write_out.pvalid) {
-      CHECK(chain_out.pwrite_uowner==0 && write_out.pbits.paddress==24+written);
+      CHECK(chain_out.powner==0 && write_out.pbits.paddress==24+written);
       CHECK(write_out.pbits.pdata.words==data(written ? 3 : hold_store ? 2 : 0));
       written+=bool(write_in.pready);
     }
@@ -797,8 +863,10 @@ int main() {
     displaced_lineage(20);
     displaced_lineage(32);
     displaced_lineage(32,true);
-    load_handoff();
+    load_handoff(false);
+    load_handoff(true);
     store_handoff();
+    for (bool store : {false,true}) physical_queue_depth(store);
     for (auto scenario : {Window::hit_stream, Window::cold_oldest, Window::younger, Window::promote, Window::masked_oldest})
       writeback_window(scenario);
     for (bool store : {false,true}) for (bool alias : {false,true})

@@ -28,19 +28,19 @@ sync_circuit VectorLoadReturn(xlen :: XLen, vlen :: VectorLength, Owner :: DataT
   input reserve: Bool
   output credits: MemoryPendingCount
   input issue_owner: Owner
+  input drain_active: Bool
   input drain_owner: Owner
   output head_pending: Bool
   def buffered = returned |> queue(MemoryRowCredits)
-  def loads = buffered |> gate_flow(buffered.bits.credit.owner === drain_owner)
+  def loads = buffered |> gate_flow(drain_active & (buffered.bits.credit.owner === drain_owner))
 
-  reg pending(~init: literal(Vec(2, MemoryPendingCount), 0))
-  reg owners(Vec(2, Owner))
-  def existing = vec(for List (i in 0..2): pending[i].any() & (owners[i] === issue_owner))
-  def bank = mux(existing.as_bits().any(), existing[1], pending[0].any())
-  for (i in 0..2):
-    def add = reserve & (bank === Bool(i == 1))
-    def remove = loads.fire() & pending[i].any() & (owners[i] === drain_owner)
-    when add: owners[i] <== issue_owner
+  def slots = 2 ** Owner.packed_width()
+  reg pending(~init: literal(Vec(slots, MemoryPendingCount), 0))
+  reg count(~init: MemoryPendingCount(0))
+  when (reserve =/= loads.fire()): count <== mux(reserve, count + MemoryPendingCount(1), count - MemoryPendingCount(1))
+  for (i in 0..slots):
+    def add = reserve & (issue_owner === Owner(i))
+    def remove = loads.fire() & (drain_owner === Owner(i))
     when (add =/= remove): pending[i] <== mux(add, pending[i] + MemoryPendingCount(1), pending[i] - MemoryPendingCount(1))
   def format = setup.bits
   def layout = format.layout
@@ -48,8 +48,8 @@ sync_circuit VectorLoadReturn(xlen :: XLen, vlen :: VectorLength, Owner :: DataT
   merger.elementwise <== format.elementwise
   merger.displacement <== format.displacement
   loads |> merger.beat
-  credits <== pending[0] + pending[1]
-  head_pending <== any(for List (i in 0..2): pending[i].any() & (owners[i] === drain_owner))
+  credits <== count
+  head_pending <== pending[drain_owner].any()
   element_drained.valid <== loads.fire() & loads.bits.credit.element_end
   element_drained.bits <== loads.bits.credit.owner
   reg ordinal(~init: Bits(3)(0))

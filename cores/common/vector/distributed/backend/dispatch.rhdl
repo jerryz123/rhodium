@@ -1,11 +1,12 @@
 #lang rhodium
-/* Routes execute work and retains checked memory descriptors until the checker can start. */
+/* Splits ordered vector dispatch into independently buffered address and register work. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../geometry.rhdl".compute_extent
-  "../../decode.rhdl".VectorDispatchKind
-  "../common/paths.rhm" open
+  "../common/memory-route.rhdl" open
+  "../mem/address-queue.rhdl" open
+  lib("cores/common/mmu/vector.rhdl") open
   lib("cores/common/vector/bundles.rhdl") open
   lib("riscv/isa/vector.rhm").VectorLength
   lib("riscv/isa/xlen.rhm").XLen
@@ -17,43 +18,46 @@ fun vector_dispatch_empty(xlen :: XLen, vlen :: VectorLength, d :: VectorDescrip
   def extent = compute_extent(xlen, vlen, d)
   mux(d.control.memory, d.state.vstart >= d.beat_limit(vlen).zext(xlen.width), !extent.has_body() & !extent.scalar_result)
 
-/* Only checked memory enters these heads. Reclaim, not starting a slice,
-   releases its owner; native memory allocates directly in the VLSU. */
-sync_circuit DistributedVectorDispatch(xlen :: XLen, slots :: Pow2Int):
-  def Entry = VectorDispatchEntry(xlen, slots)
-  interface ingress(Decoupled(Entry), ~role: consumer)
-  interface heads[MemoryPaths.length()](Decoupled(Entry), ~role: producer)
-  def Owner = Bits(index_width(slots))
-  input memory_busy: Vec(MemoryPaths.length(), Bool)
-  interface native_execute(Decoupled(Entry), ~role: producer)
-  interface reclaimed(Valid(Owner), ~role: consumer)
-  def paths = ingress |> demux_flow(VectorDispatchKind.values().length(), entry):
-    entry.checked.descriptor.control.dispatch_kind.as_bits()
-  paths[VectorDispatchKind.None.packed_value()].ready <== Bool(#false)
-  /* A release is addressed, since macro completion and slot reuse are independent. */
-  fun releases(event :: Endpoint, owner :: Bits(index_width(slots))) :~ Bool:
-    event.valid & (event.bits === owner)
-  reg descriptors(Vec(MemoryPaths.length(), Entry))
-  reg starting(~init: Bits(MemoryPaths.length())(0).as_vec(Bool))
-  // Native memory residency belongs exclusively to the VLSU and VRF sequencers.
-  // A checked access retains its kind across its individual element launches.
-  reg checked_live(~init: Bits(MemoryPaths.length())(0).as_vec(Bool))
-  paths[VectorDispatchKind.Execute.packed_value()] |> native_execute
-  for (kind in MemoryPaths):
-    def dispatch = if kind == LoadPath | VectorDispatchKind.Load | VectorDispatchKind.Store
-    def input_path = paths[dispatch.packed_value()]
-    def owner = descriptors[kind].owner
-    when (input_path.fire()): checked_live[kind] <== Bool(#true)
-    elsewhen (releases(reclaimed, owner)): checked_live[kind] <== Bool(#false)
-    def available = !memory_busy[kind] & !checked_live[kind]
-    input_path.ready <== !starting[kind] & available
-    heads[kind].valid <== starting[kind]
-    heads[kind].bits <== descriptors[kind]
-    def allocate = input_path.fire()
-    when allocate: descriptors[kind] <== input_path.bits
-    when (allocate ||| heads[kind].fire()): starting[kind] <== allocate
-    def name = "dispatch-head-" ++ to_string(kind)
-    describe_interface_retained_storage(allocate, heads[kind].fire(), starting[kind], ~name: name)
-    describe_interface_contract(input_path, heads[kind], name, ~trace_model: interface_trace_retained(~name: name))
+/* Carry the selected datapath route with its owner through a stalled VXDQ. */
+bundle VectorDatapathDispatch(xlen :: XLen, slots :: Pow2Int):
+  entry: VectorDispatchEntry(xlen, slots)
+  direct: Bool
 
-export DistributedVectorDispatch vector_dispatch_empty
+/* Accept a native memory owner into both queues on one edge. VMDQ registers
+   the translated command; VXDQ bypasses when empty but never skips its head.
+   Checked macros enter only VXDQ; their certified slices subsequently use VMDQ. */
+sync_circuit DistributedVectorDispatch(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
+  def Entry = VectorDispatchEntry(xlen, slots)
+  def Work = VectorDatapathDispatch(xlen, slots)
+  def Command = MemoryLaunch(xlen, vlen, slots)
+  interface ingress(Decoupled(Entry), ~role: consumer)
+  input direct: Bool
+  input window_pages: VectorWindowPages
+  interface work(Decoupled(Work), ~role: producer)
+  interface checked_address(Decoupled(Command), ~role: consumer)
+  interface address(Decoupled(Command), ~role: producer)
+  inst vmdq(Queue(Command, 1, ~pipe: #true))
+  inst vxdq(Queue(Work, 4, ~flow: #true))
+  def Array(registers, memory) = ingress |> atomic_fork(2)
+  (registers |> map_flow(e => VectorDatapathDispatch(xlen, slots)):
+     entry: e
+     direct: direct
+  ) |> vxdq.ingress
+  vxdq.egress |> work
+  /* Snapshot the certificate before dispatch can advance the translation window. */
+  fun physical_command(e :: VectorDispatchEntry(xlen, slots)) :~ MemoryLaunch(xlen, vlen, slots):
+    def d = e.checked.descriptor
+    MemoryLaunch(xlen, vlen, slots):
+      issue: direct_memory_issue(xlen, vlen, slots, e)
+      pages: mux(d.precertified, d.certificate.pages(), window_pages)
+      service: VectorMemoryService.Cached
+  def physical = memory |> filter_flow(_e => direct) |> map_flow(e => physical_command(e))
+  Array(checked_address, physical) |> arbiter() |> vmdq.ingress
+  vmdq.egress |> address
+
+  interface scalar_probe(Valid(RowFootprint()), ~role: consumer)
+  output scalar_conflict: Bool
+  def pending = physical_span(xlen, vlen, slots, address.bits)
+  scalar_conflict <== address.valid & (pending.store ||| scalar_probe.bits.store) & (!scalar_probe.valid ||| physical_overlap(xlen, scalar_probe.bits, pending))
+
+export DistributedVectorDispatch VectorDatapathDispatch vector_dispatch_empty

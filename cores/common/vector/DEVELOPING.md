@@ -224,17 +224,26 @@ A displaced prefix can enter the merger without its suffix; a completed row
 needs only the fair VRF grant, never a later cache reply. Keep every accepted
 load in the [pending count](distributed/mem/load-return.rhdl) until the merger
 consumes its beat, including replies still held by L1D.
-At ordered dispatch the VLSU reserves a slot in its two-entry VLIQ or VSIQ
-atomically with the corresponding VRF work. Each physical queue holds the
-translated byte envelope until all accepted requests have returned or ACKed.
+At ordered dispatch a direct memory operation takes one VXDQ entry and the
+one-entry pipelined VMDQ on the same edge. VMDQ captures the translation;
+include its footprint in scalar alias probes until VLAQ/VSAQ accepts it.
+Each four-entry AQ holds its envelope until all requests have returned or ACKed.
+Only the head of the four-entry VXDQ can install register work, including any
+paired VPS reader. Thus younger VRF operations cannot overtake a queued
+descriptor; once installed, the row scoreboards enforce cross-sequencer hazards.
+A checked macro waits for precision at the VXDQ head; its resolved address
+commands use VMDQ. There are no per-sequencer input FIFOs.
 The address head can install the next instruction once the cursor issues its
 tail. The drain head releases the footprint independently of VRF writeback.
 Allocation records older overlapping opposite-kind entries, plus older
 overlapping stores for a store; disjoint addresses and load/load pairs
 need no dependency. Compare both physical pages, not the virtual address.
 VLSeq retains destination geometry and claims through the final granted write;
-VSSeq retains operand geometry through capture. Neither owns a physical
-instruction queue. Checked streams retain exclusive ownership.
+VSSeq retains operand geometry through capture. Neither queues a second
+instruction. Unmasked single-field contiguous loads generate their byte masks
+in the VLSU; other loads wait for their sequenced operands. Return credits are
+counted by instruction owner, and the merger accepts only the active VLSeq owner.
+Checked streams retain exclusive ownership.
 On the store side, the VLSU owns both ingress slots. For single-field stores
 VSSeq advances on a granted VS3 read or an accepted mask skip. The one-cycle
 return stage keeps the row, span, enables and tail for that decision, not a

@@ -64,7 +64,7 @@ In [`mshrs.rhdl`](mshrs.rhdl), each slot owns one retryable refill and one
 writeback. The classifier and the resolved head each offer an allocation containing the acquisition
 and its victim; an invalid victim state means no copyback. The bank arbitrates
 whole allocations and rotates among free entries. RV3Wide uses CHI IDs
-0, 3, 4, 5 for refills and 1, 6, 7, 8 for copybacks; ID 2 stays reserved
+0 and 3–9 for refills and 1 and 10–16 for copybacks; ID 2 stays reserved
 for maintenance. The two-slot fixture uses refill IDs 0 and 3 and copyback IDs 1 and 4. DAT and
 tagged responses identify their transaction; untagged PCrdGrant matches one
 waiting home/type pair. A grant freezes only its own victim's snoop state.

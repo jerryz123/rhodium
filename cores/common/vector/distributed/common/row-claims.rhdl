@@ -12,8 +12,7 @@ import:
   lib("riscv/isa/vector.rhm").VectorLength
   lib("riscv/isa/xlen.rhm").XLen
 
-/* The operand cursor owns unread predicates and its destination claims.
-   An older draining load keeps independent destination claims through writeback. */
+/* The active load owns its remaining predicate reads and destination writes. */
 interface VectorLoadChain(Owner :: DataType):
   role engine
   role scoreboard
@@ -22,10 +21,6 @@ interface VectorLoadChain(Owner :: DataType):
     owner: Owner
     unread_v0: PredicateSet
     unwritten_vd: RowSet
-    write_owner: Owner
-    draining_vd: RowSet
-    draining_v0: PredicateSet
-    read_owner: Owner
   scoreboard -> engine:
     older_writes: RowSet
     older_accesses: RowSet
@@ -40,8 +35,6 @@ interface VectorStoreReadChain(Owner :: DataType):
     owner: Owner
     unread_vs3: RowSet
     unread_v0: PredicateSet
-    waiting: Bool
-    waiting_owner: Owner
   scoreboard -> engine:
     older_writes: RowSet
 

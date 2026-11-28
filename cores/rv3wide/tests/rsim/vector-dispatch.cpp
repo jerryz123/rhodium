@@ -3,76 +3,46 @@
 
 int main() {
   return run_test([] {
-    reset = 1;
-    ingress_in = {};
-    heads_0_in = {}; heads_1_in = {};
-    tick_model();
-    reset = 0;
-    native_execute_in.pready=1;
-    unsigned sequence = 0;
-    auto offer = [&](unsigned path) {
-      ingress_in.pvalid = 1;
-      auto &e = ingress_in.pbits;
-      e.powner = sequence % 4;
-      e.pchecked.pdescriptor.ppc = 4 * sequence;
-      enum DispatchKind { None, Execute, Load, Store };
-      e.pchecked.pdescriptor.pcontrol.pdispatch_ukind = path == 0 ? Load : path == 1 ? Store : Execute;
-      e.pchecked.powns_uwindow = path == 1;
+    reset=1; tick_model(); reset=0;
+    address_in.pready=0; work_in.pready=0;
+    window_pages[0]=0x23; window_pages[1]=0x71;
+    auto offer=[&](unsigned owner,bool mem,bool store=false) {
+      ingress_in.pvalid=1; ingress_in.pbits={}; direct=mem;
+      auto& e=ingress_in.pbits;
+      e.powner=owner;
+      auto& d=e.pchecked.pdescriptor;
+      d.ppc=0x1000+4*owner; d.pscalar=store ? 0xffc : 0x800;
+      d.pstate.pvl=8; d.pcontrol.pmemory=mem; d.pcontrol.pstore=store;
+      d.pcontrol.pdispatch_ukind=mem ? (store ? 3 : 2) : 1;
       eval();
     };
-    auto push = [&](unsigned path) {
-      offer(path);
-      CHECK(ingress_out.pready);
-      tick_model();
-      ++sequence;
-      ingress_in.pvalid = 0;
+    auto probe=[&](unsigned page,unsigned offset,bool store=false) {
+      scalar_probe_in.pvalid=1; auto& s=scalar_probe_in.pbits;
+      s={}; s.pstore=store; s.ppages[0]=page; s.pfirst=s.plast=offset;
+      eval(); return bool(scalar_conflict);
     };
-    for (unsigned n = 0; n < 4; ++n) {
-      unsigned first = sequence;
-      push(1); push(0); push(2);
-      memory_busy[0]=memory_busy[1]=1;
-      offer(1);
-      heads_0_in.pready = 1;
-      eval();
-      CHECK(!ingress_out.pready); // Can't dispatch past a full matching queue.
-      CHECK(heads_0_out.pvalid);
-      CHECK(heads_0_out.pbits.pchecked.pdescriptor.ppc == 4 * (first+1));
-      tick_model(); // Both younger heads issue, without consuming the older store.
-      eval();
-      CHECK(!heads_0_out.pvalid && !ingress_out.pready);
-      CHECK(heads_1_out.pvalid && heads_1_out.pbits.powner == first%4);
-      CHECK(heads_1_out.pbits.pchecked.powns_uwindow);
-      heads_1_in.pready = 1;
-      tick_model(); eval();
-      CHECK(!ingress_out.pready && !heads_1_out.pvalid);
-      offer(0); CHECK(!ingress_out.pready); // VLSeq still owns the write.
-      native_execute_in.pready=0; offer(2); CHECK(!ingress_out.pready);
-      native_execute_in.pready=1; memory_busy[1]=0;
-      ingress_in.pvalid=0;
-      memory_busy[0]=0;
-      reclaimed_in.pvalid=1;
-      reclaimed_in.pbits=first%4; tick_model();
-      reclaimed_in.pbits=(first+1)%4; tick_model();
-      reclaimed_in.pvalid=0;
-      for (unsigned path=0;path<3;++path) { offer(path); CHECK(ingress_out.pready); }
-      ingress_in.pvalid=0;
-      heads_0_in.pready = heads_1_in.pready = 0;
+    offer(0,true,true); CHECK(ingress_out.pready && !address_out.pvalid); tick_model();
+    ingress_in.pvalid=0; window_pages[1]=0x90; eval();
+    // Before the store enters VSAQ, a scalar load aliases either translated page,
+    // never a disjoint byte or a later live translation of the second page.
+    CHECK(address_out.pvalid && address_out.pbits.pissue.powner==0);
+    CHECK(probe(0x23,0xfff) && probe(0x71,3) && !probe(0x71,4) && !probe(0x90,0));
+    // A full VMDQ cannot partially enqueue a younger load on the register side.
+    offer(1,true); CHECK(!ingress_out.pready); tick_model();
+    address_in.pready=1; eval(); CHECK(ingress_out.pready && address_out.pbits.pissue.powner==0);
+    tick_model(); ingress_in.pvalid=0; eval();
+    CHECK(address_out.pvalid && address_out.pbits.pissue.powner==1);
+    CHECK(!probe(0x23,0x800) && probe(0x23,0x800,true) && !probe(0x71,0));
+    // VXDQ is still stalled on the older store: memory has gone ahead independently.
+    CHECK(work_out.pvalid && work_out.pbits.pentry.powner==0);
+    offer(2,false); CHECK(ingress_out.pready); tick_model();
+    offer(3,false); CHECK(ingress_out.pready); tick_model();
+    offer(0,true); CHECK(!ingress_out.pready && !address_out.pvalid);
+    tick_model(); ingress_in.pvalid=0; work_in.pready=1;
+    for (unsigned i=0;i<4;++i) {
+      eval(); CHECK(!address_out.pvalid && work_out.pvalid && work_out.pbits.pentry.powner==i);
+      CHECK(work_out.pbits.pdirect==(i<2)); tick_model();
     }
-    // Native execute has no dispatch head. Its transfer is the VXSeq transfer.
-    native_execute_in.pready=0; offer(2);
-    CHECK(!ingress_out.pready && native_execute_out.pvalid);
-    CHECK(native_execute_out.pbits.powner==sequence%4);
-    native_execute_in.pready=1; eval(); CHECK(ingress_out.pready);
-    push(2);
-
-    // The precise checker did not install a VLSU cursor. Its kind stays reserved
-    // until the matching macro is reclaimed, even with both native entries idle.
-    const unsigned owner=sequence%4;
-    push(0);
-    heads_0_in.pready=1;
-    tick_model();
-    reclaimed_in.pvalid=1; reclaimed_in.pbits=(owner+1)%4;
-    tick_model(); offer(0); CHECK(!ingress_out.pready);
-    reclaimed_in.pbits=owner; tick_model(); offer(0); CHECK(ingress_out.pready);
+    eval(); CHECK(!work_out.pvalid && !address_out.pvalid);
   });
 }

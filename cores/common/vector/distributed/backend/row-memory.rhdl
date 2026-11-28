@@ -17,19 +17,19 @@ import:
   "../common/row-types.rhdl" open
   "../common/memory-route.rhdl" open
   "../mem/vlsu.rhdl".VectorVLSU
-  "../mem/instruction-queue.rhdl".RowFootprint
+  "../mem/address-queue.rhdl".RowFootprint
   "load-sequencer.rhdl".VectorLoadSequencer
   "store-sequencer.rhdl".VectorStoreSequencer
 
-/* Dispatch installs the VRF sequencer; a separate address offer must pass
-   memory ordering before the matching cursor can consume any prepared row. */
+/* The VLSU orders physical commands; each VRF sequencer accepts operand work
+   independently. Only rows requiring VRF operands wait for both sides. */
 sync_circuit VectorRowEngine(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~trace_isa: trace_isa :: maybe(String) = #false):
   def dlen = vector_dlen(vlen)
   def Owner = Bits(index_width(slots))
   input trace_instructions: Vec(slots, VectorTraceInstruction(xlen))
   interface launch[MemoryPaths.length()](Decoupled(MemoryLaunch(xlen, vlen, slots)), ~role: consumer)
   input stream_owner: Owner
-  interface prepare(Decoupled(MemoryIssue(xlen, vlen, slots)), ~role: consumer)
+  interface prepare[MemoryPaths.length()](Decoupled(MemoryIssue(xlen, vlen, slots)), ~role: consumer)
   interface checked_element(Decoupled(CheckedIndexElement(xlen, vlen)), ~role: consumer)
   input(stream_live, stream_store): Bool
   interface splat(Decoupled(SplatPosition(dlen)), ~role: consumer)
@@ -58,9 +58,8 @@ sync_circuit VectorRowEngine(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   scalar_conflict <== vlsu.scalar_conflict
   inst stores(VectorStoreSequencer(xlen, vlen, slots, ~trace_isa: trace_isa))
   stores.trace_instructions <== trace_instructions
-  def Array(load, store) = prepare |> demux_flow(2, entry => entry.command.store)
   splat |> vlsu.splat
-  load |> loads.input_work
+  prepare[LoadPath] |> loads.input_work
   checked_element |> vlsu.checked_element
   vlsu.stream_live <== stream_live
   vlsu.stream_store <== stream_store
@@ -68,7 +67,7 @@ sync_circuit VectorRowEngine(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   loads.gather_live <== stream_live & !stream_store
   loads.gather_row.valid <== checked_element.fire() & !stream_store
   loads.gather_row.bits <== checked_element.bits.row
-  store |> stores.prepare
+  prepare[StorePath] |> stores.prepare
   stores.scatter_live <== scatter_live
   stores.scatter_owner <== stream_owner
   vlsu.scatter <=> stores.scatter
@@ -86,14 +85,15 @@ sync_circuit VectorRowEngine(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   ) |> vlsu.store_data
   stores.room_after_capture <== vlsu.store_room_after_capture
   loads.return_setup |> vlsu.load_setup
-  vlsu.drain_owner <== loads.chain.write_owner
+  vlsu.drain_active <== loads.busy
+  vlsu.drain_owner <== loads.chain.owner
   vlsu.load_result |> loads.result
   vlsu.load_visit |> loads.visit
   loads.returns_pending <== vlsu.returns_pending
   vlsu.memory <=> memory
   loads.chain <=> chain
   stores.store_reads <=> store_reads
-  def write_owner = loads.chain.write_owner
+  def write_owner = loads.chain.owner
   (loads.write |> trace_event("vector/load.sequence", ~stalls: #true, ~fields: wr):
      pc: trace_instructions[write_owner].pc
      instruction(~format: "riscv", ~isa: isa, ~pc: "pc"): trace_instructions[write_owner].instruction
@@ -123,6 +123,6 @@ sync_circuit VectorRowEngine(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   fun describe_transfer(prefix :: String, fire :: Bool, ctx :: RowCredit(xlen, vlen, Owner), data :: Bits(dlen)):
     for Map ((key, value) in {"transfer": fire, "owner": ctx.owner, "singleton": ctx.singleton, "row": ctx.row, "offset": ctx.offset, "va": ctx.va, "pa": ctx.pa, "byte_mask": ctx.enabled, "data": data}):
       values(prefix ++ key, value)
-  describe_cosim_signals(describe_transfer("load_", vlsu.loaded.valid, vlsu.loaded.bits.credit, vlsu.loaded.bits.data) ++ describe_transfer("store_", vlsu.stored.valid, vlsu.stored.bits.credit, vlsu.stored.bits.data) ++ {"write": write.fire(), "write_owner": chain.write_owner, "write_row": write.bits.address, "write_data": write.bits.data, "write_mask": write.bits.mask})
+  describe_cosim_signals(describe_transfer("load_", vlsu.loaded.valid, vlsu.loaded.bits.credit, vlsu.loaded.bits.data) ++ describe_transfer("store_", vlsu.stored.valid, vlsu.stored.bits.credit, vlsu.stored.bits.data) ++ {"write": write.fire(), "write_owner": chain.owner, "write_row": write.bits.address, "write_data": write.bits.data, "write_mask": write.bits.mask})
 
 export VectorRowEngine

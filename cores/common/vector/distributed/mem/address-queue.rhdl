@@ -1,5 +1,5 @@
 #lang rhodium
-/* Holds two translated memory instructions from ordered admission through physical delivery. */
+/* Holds four certified address commands through address generation and ordered physical delivery. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -41,39 +41,43 @@ fun physical_overlap(xlen :: XLen, a :: RowFootprint(), b :: RowFootprint()) :~ 
     (Bool(i == 0) ||| a.crosses) & (Bool(j == 0) ||| b.crosses) & (a.pages[i][0..ppn_bits] === b.pages[j][0..ppn_bits]) & (lo <= other_hi) & (other_lo <= hi)
   any(for List (i in 0..2): any(for List (j in 0..2): intersects(i, j)))
 
+def AddressQueueEntries = 4
+
 /* Allocation snapshots blockers against all older entries, including unissued
    instructions. Clear dependencies on physical delivery, not on VRF writeback.
    Load and store instances share this controller, not a FIFO or data buffer. */
-sync_circuit VectorMemoryInstructions(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~store: store :: Boolean):
+sync_circuit VectorAddressQueue(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~store: store :: Boolean):
   def Command = MemoryLaunch(xlen, vlen, slots)
+  def Entry = Bits(index_width(AddressQueueEntries))
+  def EntryMask = Bits(AddressQueueEntries)
   def Owner = Bits(index_width(slots))
   interface enqueue(Decoupled(Command), ~role: consumer)
   interface issue(Decoupled(Command), ~role: producer)
   interface done(Decoupled(MemoryEvent(slots)), ~role: producer)
-  input peer_live: Bits(2)
-  input peer_spans: Vec(2, RowFootprint())
-  input peer_release: Bits(2)
-  output(live_mask, release_mask): Bits(2)
-  output spans: Vec(2, RowFootprint())
+  input peer_live: EntryMask
+  input peer_spans: Vec(AddressQueueEntries, RowFootprint())
+  input peer_release: EntryMask
+  output(live_mask, release_mask): EntryMask
+  output spans: Vec(AddressQueueEntries, RowFootprint())
   output room: Bool
   input(request, response, last, continuation, stream_live): Bool
   input(response_owner, cursor_owner): Owner
-  reg entries(Vec(2, Command))
-  reg live(~init: Bits(2)(0).as_vec(Bool))
-  reg closed(~init: Bits(2)(0).as_vec(Bool))
-  reg waiting(~init: Bits(2)(0).as_vec(Bool))
-  reg alloc(~init: Bits(1)(0))
-  reg head(~init: Bits(1)(0))
-  reg drain(~init: Bits(1)(0))
+  reg entries(Vec(AddressQueueEntries, Command))
+  reg live(~init: EntryMask(0).as_vec(Bool))
+  reg closed(~init: EntryMask(0).as_vec(Bool))
+  reg waiting(~init: EntryMask(0).as_vec(Bool))
+  reg alloc(~init: Entry(0))
+  reg head(~init: Entry(0))
+  reg drain(~init: Entry(0))
   def Count = Bits(index_width(MemoryRequestEntries + 1))
-  reg pending(~init: literal(Vec(2, Count), 0))
-  reg peers(Vec(2, Bits(2)))
-  reg predecessors(Vec(2, Bits(2)))
+  reg pending(~init: literal(Vec(AddressQueueEntries, Count), 0))
+  reg peers(Vec(AddressQueueEntries, EntryMask))
+  reg predecessors(Vec(AddressQueueEntries, EntryMask))
   live_mask <== live.as_bits()
-  spans <== vec(for List (i in 0..2): physical_span(xlen, vlen, slots, entries[i]))
+  spans <== vec(for List (i in 0..AddressQueueEntries): physical_span(xlen, vlen, slots, entries[i]))
   def candidate = enqueue.bits
   def footprint = physical_span(xlen, vlen, slots, candidate)
-  def matches = vec(for List (i in 0..2): live[i] & (entries[i].issue.owner === candidate.issue.owner))
+  def matches = vec(for List (i in 0..AddressQueueEntries): live[i] & (entries[i].issue.owner === candidate.issue.owner))
   def stream = candidate.issue.kind === MemoryIssueKind.ResolvedStream
   def reuse = stream & matches[drain] & !waiting[drain] & closed[drain]
   room <== !live[alloc]
@@ -82,35 +86,36 @@ sync_circuit VectorMemoryInstructions(xlen :: XLen, vlen :: VectorLength, slots 
   def compatible = !matches.as_bits().any() & (!live_mask.any() ||| (!exclusive & !resolved_issue(entries[drain].issue.kind)))
   enqueue.ready <== reuse ||| (room & compatible)
   def push = enqueue.fire()
-  def peer_hits = vec(for List (i in 0..2): physical_overlap(xlen, footprint, peer_spans[i])).as_bits() & peer_live
+  def Array(physical_origin, physical_bypass) = observe_transfer(enqueue) |> fork_valid(2)
+  def peer_hits = vec(for List (i in 0..AddressQueueEntries): physical_overlap(xlen, footprint, peer_spans[i])).as_bits() & peer_live
   def self_hits = if store
-  | vec(for List (i in 0..2): physical_overlap(xlen, footprint, spans[i])).as_bits() & live_mask
-  | Bits(2)(0)
+  | vec(for List (i in 0..AddressQueueEntries): physical_overlap(xlen, footprint, spans[i])).as_bits() & live_mask
+  | EntryMask(0)
   done.valid <== live[drain] & closed[drain] & !pending[drain].any() & !stream_live & !(enqueue.valid & reuse)
   done.bits <== MemoryEvent(slots):
     owner: entries[drain].issue.owner
     checked: resolved_issue(entries[drain].issue.kind)
   def release = done.fire()
-  release_mask <== mux(release, Bits(2)(1) << drain, Bits(2)(0))
+  release_mask <== mux(release, EntryMask(1) << drain, EntryMask(0))
   // Bypass an empty address head; queued work retains its original provenance.
   def bypass = push & !waiting[head] & ((index === head) ||| reuse)
   def saved = inject_interface(Valid(Command), ~valid: waiting[head] & !peers[head].any() & !predecessors[head].any(), ~bits: entries[head])
-  def incoming = observe_transfer(enqueue) |> filter_valid(_entry => bypass & !peer_hits.any() & (!self_hits.any() ||| reuse))
+  def incoming = physical_bypass |> filter_valid(_entry => bypass & !peer_hits.any() & (!self_hits.any() ||| reuse))
   Array(saved, incoming) |> valid_arbiter() |> offer_decoupled() |> issue
   describe_interface_retained_bank(
-    for List (i in 0..2): push & (index === Bits(1)(i)) & !(bypass & issue.fire()),
-    for List (i in 0..2): waiting[i] & issue.fire() & (head === Bits(1)(i)),
-    for List (i in 0..2): waiting[i],
-    ~grants: [for List (i in 0..2): head === Bits(1)(i)], ~name: "address-head"
+    for List (i in 0..AddressQueueEntries): push & (index === Entry(i)) & !(bypass & issue.fire()),
+    for List (i in 0..AddressQueueEntries): waiting[i] & issue.fire() & (head === Entry(i)),
+    for List (i in 0..AddressQueueEntries): waiting[i],
+    ~grants: [for List (i in 0..AddressQueueEntries): head === Entry(i)], ~name: "address-head"
   )
-  describe_interface_contract(enqueue, saved, "address-head", ~trace_model: interface_trace_retained_bank(~name: "address-head"))
-  when (push & !reuse): alloc <== !alloc
+  describe_interface_contract(physical_origin, saved, "address-head", ~trace_model: interface_trace_retained_bank(~name: "address-head"))
+  when (push & !reuse): alloc <== alloc + Entry(1)
   def advance = issue.fire() & (issue.bits.issue.kind =/= MemoryIssueKind.ResolvedStream)
   def stream_done = release & (entries[drain].issue.kind === MemoryIssueKind.ResolvedStream)
-  when (advance ||| stream_done): head <== !head
-  when release: drain <== !drain
-  for (i in 0..2):
-    def id = Bits(1)(i)
+  when (advance ||| stream_done): head <== head + Entry(1)
+  when release: drain <== drain + Entry(1)
+  for (i in 0..AddressQueueEntries):
+    def id = Entry(i)
     def install = push & (index === id)
     def begin = issue.fire() & (head === id)
     def current = live[i] & (entries[i].issue.owner === cursor_owner)
@@ -119,11 +124,11 @@ sync_circuit VectorMemoryInstructions(xlen :: XLen, vlen :: VectorLength, slots 
     when install: entries[i] <== candidate
     when (install ||| begin): waiting[i] <== !begin
     peers[i] <== mux(install, peer_hits, peers[i]) & !peer_release
-    predecessors[i] <== mux(install, mux(reuse, Bits(2)(0), self_hits), predecessors[i]) & !release_mask
+    predecessors[i] <== mux(install, mux(reuse, EntryMask(0), self_hits), predecessors[i]) & !release_mask
     when (install ||| (current & continuation)): closed[i] <== Bool(#false)
     elsewhen (current & last): closed[i] <== Bool(#true)
     def admitted = current & request
     when (admitted =/= returned): pending[i] <== mux(admitted, pending[i] + Count(1), pending[i] - Count(1))
-  assert(!(response & !any(for List (i in 0..2): live[i] & (entries[i].issue.owner === response_owner) & pending[i].any())), "memory_response_has_reserved_owner")
+  assert(!(response & !any(for List (i in 0..AddressQueueEntries): live[i] & (entries[i].issue.owner === response_owner) & pending[i].any())), "memory_response_has_reserved_owner")
 
-export VectorMemoryInstructions RowFootprint physical_span physical_overlap
+export AddressQueueEntries VectorAddressQueue RowFootprint physical_span physical_overlap

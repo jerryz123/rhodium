@@ -24,8 +24,8 @@ granted victim can drain even if the older miss is still waiting for its grant.
 Their writeback engines share one victim reader and one outgoing CHI data port;
 refills can finish out of order, but authorized responses stay ordered.
 
-RV3Wide's four miss slots share one ordered window of 16 request descriptors.
-A distinct miss that finds all four slots occupied waits in that window, not
+RV3Wide's eight miss slots share one ordered window of 16 request descriptors.
+A distinct miss that finds all slots occupied waits in that window, not
 in the SRAM lookup path. It rechecks the tags once a slot becomes available.
 Stores, store-conditionals and AMOs also reserve one of eight write-operand
 slots. Loads need no operand slot, so a full write pool alone does not block

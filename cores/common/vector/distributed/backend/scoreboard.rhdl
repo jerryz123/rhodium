@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../common/paths.rhm" open
   "../../backend-kind.rhm".DistributedRowsPerRegister
   "../common/row-types.rhdl" open
   "../../bundles.rhdl" open
@@ -21,15 +20,11 @@ sync_circuit DistributedVectorScoreboard(xlen :: XLen, vlen :: VectorLength, vec
   def tag_width = index_width(vector_completion_slots)
   interface request(Valid(VectorDescriptor(xlen)), ~role: consumer)
   input(next_owner, drain_owner): Bits(tag_width)
-  input(macro_valid, macro_store, macro_load, macro_issued): Vec(vector_completion_slots, Bool)
+  input(macro_valid, macro_store, macro_load): Vec(vector_completion_slots, Bool)
   input macro_groups: Vec(vector_completion_slots, RegisterSet)
-  def requested_control = request.bits.control
   input(allocation_native, allocation_precise, allocation_empty): Bool
-  input head_owner: Vec(DispatchPaths.length(), Bits(tag_width))
-  input head_issued: Vec(DispatchPaths.length(), Bool)
-  output head_allowed: Vec(DispatchPaths.length(), Bool)
+  output execute_allowed: Bool
   reg readers(Vec(vector_completion_slots, RegisterSet))
-  reg queued(Vec(vector_completion_slots, Bool))
   reg native(Vec(vector_completion_slots, Bool))
   reg precise(Vec(vector_completion_slots, Bool))
   // Checked accesses serialize issue until their fault disposition is known.
@@ -40,17 +35,13 @@ sync_circuit DistributedVectorScoreboard(xlen :: XLen, vlen :: VectorLength, vec
     def tag = Bits(tag_width)(i)
     when (request.valid & (next_owner === tag)):
       readers[i] <== mux(allocation_empty, RegisterSet(0), source_group)
-      queued[i] <== !allocation_empty & requested_control.memory & !allocation_native
       native[i] <== allocation_native
       precise[i] <== allocation_precise
-    elsewhen (any(for List (h in DispatchPaths): head_issued[h] & (head_owner[h] === tag))):
-      queued[i] <== Bool(#false)
 
   interface special_reads(VectorSpecialReadChain(Bits(tag_width)), ~role: scoreboard)
   interface mem_chain(VectorLoadChain(Bits(tag_width)), ~role: scoreboard)
   interface store_reads(VectorStoreReadChain(Bits(tag_width)), ~role: scoreboard)
   interface alu_chain(VectorExecuteChain(Bits(tag_width)), ~role: scoreboard)
-  def queued_store_reads = mux(store_reads.waiting, readers[store_reads.waiting_owner], RegisterSet(0))
   def unread_store = store_reads.unread_vs3 ||| store_reads.unread_v0.zext(PhysicalRows)
   /* Compare ages from the reclamation frontier; owner tags can wrap. */
   fun older_than(candidate :: Bits(tag_width), owner :: Bits(tag_width)) :~ Bool:
@@ -64,10 +55,8 @@ sync_circuit DistributedVectorScoreboard(xlen :: XLen, vlen :: VectorLength, vec
      reports only, including writes from instructions no longer in VXSeq. */
   fun older_native(owner :: Bits(tag_width), writing :: Boolean) :~ Bits(PhysicalRows):
     def load_rows = if writing | mem_chain.unwritten_vd ||| mem_chain.unread_v0.zext(PhysicalRows) | mem_chain.unwritten_vd
-    def drain_rows = if writing | mem_chain.draining_vd ||| mem_chain.draining_v0.zext(PhysicalRows) | mem_chain.draining_vd
-    def load = mux(older_than(mem_chain.owner, owner), load_rows, RowSet(0)) ||| mux(older_than(mem_chain.write_owner, owner), drain_rows, RowSet(0))
+    def load = mux(older_than(mem_chain.owner, owner), load_rows, RowSet(0))
     def store = if writing | mux(older_than(store_reads.owner, owner), unread_store, RowSet(0)) | RowSet(0)
-    def queued_store = if writing | mux(older_than(store_reads.waiting_owner, owner), expand_mask(queued_store_reads, DistributedRowsPerRegister), RowSet(0)) | RowSet(0)
     def unissued = mux(older_than(alu_chain.owner, owner), hazards(alu_chain.unissued, writing), RowSet(0))
     def writes = for List (i in 0..ProductWriteDelay):
       def d = alu_chain.destinations[i]
@@ -75,7 +64,7 @@ sync_circuit DistributedVectorScoreboard(xlen :: XLen, vlen :: VectorLength, vec
     def special = if writing | mux(older_than(special_reads.owner, owner), special_reads.unread, RowSet(0)) | RowSet(0)
     def returning = for List (p in [alu_chain.integer_pending, alu_chain.fp_pending]):
       row_event(p.valid & older_than(p.bits.owner, owner), p.bits.row)
-    tree_reduce([load, store, queued_store, special, unissued] ++ returning ++ writes, fun (a, b): a ||| b)
+    tree_reduce([load, store, special, unissued] ++ returning ++ writes, fun (a, b): a ||| b)
 
   /* Memory operand capture precedes address admission. Include older checked
      destinations as whole-register hazards when VLSeq or VSSeq reads the VRF. */
@@ -86,8 +75,8 @@ sync_circuit DistributedVectorScoreboard(xlen :: XLen, vlen :: VectorLength, vec
     older_native(owner, #false) ||| expand_mask(tree_reduce(checked, fun (a, b): a ||| b), DistributedRowsPerRegister)
   special_reads.older_writes <== capture_hazards(special_reads.owner)
   store_reads.older_writes <== capture_hazards(store_reads.owner)
-  mem_chain.older_writes <== capture_hazards(mem_chain.read_owner)
-  mem_chain.older_accesses <== older_native(mem_chain.write_owner, #true)
+  mem_chain.older_writes <== capture_hazards(mem_chain.owner)
+  mem_chain.older_accesses <== older_native(mem_chain.owner, #true)
   alu_chain.older_writes <== older_native(alu_chain.owner, #false)
   alu_chain.older_accesses <== older_native(alu_chain.owner, #true)
 
@@ -104,23 +93,17 @@ sync_circuit DistributedVectorScoreboard(xlen :: XLen, vlen :: VectorLength, vec
     def tag = Bits(tag_width)(i)
     def live = priority_mux(~default: mux(alu_chain.owner === tag, execute_registers, RegisterSet(0))):
       !native[i]: readers[i]
-      macro_store[i]: store ||| mux(store_reads.waiting_owner === tag, queued_store_reads, RegisterSet(0))
-      macro_load[i]: (((mem_chain.owner === tag) & mem_chain.unread_v0.any()) ||| ((mem_chain.write_owner === tag) & mem_chain.draining_v0.any())).as_bits().zext(RegisterSet.packed_width())
+      macro_store[i]: store
+      macro_load[i]: ((mem_chain.owner === tag) & mem_chain.unread_v0.any()).as_bits().zext(RegisterSet.packed_width())
     mux(special_reads.owner === tag, special_registers, RegisterSet(0)) ||| live
-  def allowed = for List (h in DispatchPaths):
-    def head = head_owner[h]
-    def head_writes = writers[head]
-    def head_uses = readers[head] ||| head_writes
-    def conflicts = for List (i in 0..vector_completion_slots):
-      def older = older_than(Bits(tag_width)(i), head)
-      def register_conflict = (writers[i] & head_uses).any() ||| (unread[i] & head_writes).any()
-      // Direct accesses have already reserved their physical footprints in
-      // program order. Only an unresolved head needs the coarse memory fence.
-      def memory_order = Bool(h != ExecutePath) & !native[head] & (macro_load[i] ||| macro_store[i]) & !macro_issued[i]
-      // Only checked heads contend for the fault checker.
-      def sequence_order = queued[i] & !native[i] & !native[head]
-      macro_valid[i] & older & ((register_conflict & !(native[i] & native[head])) ||| memory_order ||| sequence_order ||| precise[i])
-    !any(conflicts)
-  head_allowed <== vec(allowed)
+  // Native sequencers launch from a single ordered VXDQ. A younger reader or
+  // writer cannot be installed ahead of an older queued register operation.
+  def head = alu_chain.owner
+  def head_writes = writers[head]
+  def head_uses = readers[head] ||| head_writes
+  def conflicts = for List (i in 0..vector_completion_slots):
+    def register_conflict = (writers[i] & head_uses).any() ||| (unread[i] & head_writes).any()
+    macro_valid[i] & older_than(Bits(tag_width)(i), head) & ((!native[i] & register_conflict) ||| precise[i])
+  execute_allowed <== !any(conflicts)
 
 export DistributedVectorScoreboard

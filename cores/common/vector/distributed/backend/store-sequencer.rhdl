@@ -30,12 +30,8 @@ sync_circuit VectorStoreSequencer(xlen :: XLen, vlen :: VectorLength, slots :: P
   interface mask(VectorPredicateTap(dlen), ~role: reader)
   interface scatter(ScatterOperand(dlen), ~role: sequencer)
   input scatter_live: Bool
-  inst waiting(Queue(MemoryOperandWork(xlen, vlen, slots), 1, ~flow: #true))
-  prepare |> map_flow(entry => operand_work(xlen, vlen, slots, entry)) |> waiting.ingress
-  def work = waiting.egress
+  def work = prepare |> map_flow(entry => operand_work(xlen, vlen, slots, entry))
   def singleton = resolved_issue(work.bits.kind)
-  store_reads.waiting <== waiting.count.any()
-  store_reads.waiting_owner <== work.bits.owner
   input scatter_owner: Owner
   output busy: Bool
   inst capture(VectorMemoryRowSequencer(xlen, vlen, ~store: #true))
@@ -115,6 +111,6 @@ sync_circuit VectorStoreSequencer(xlen :: XLen, vlen :: VectorLength, slots :: P
   )
   describe_interface_contract(captured, scatter.operand, "scatter-row", ~trace_model: interface_trace_window())
   capture.mask <=> mask
-  busy <== capturing ||| waiting.count.any()
+  busy <== capturing
 
 export VectorStoreSequencer
