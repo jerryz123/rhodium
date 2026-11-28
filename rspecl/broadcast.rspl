@@ -3,23 +3,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import lib("rhodium/formal/spec.rhm").Observed
+import "delivery.rspl".DeliveryLanes
 export broadcast_monitor broadcast_events broadcast_contract BroadcastLanes
 
-/* Index both sides of the contract by the elaborated egress array. The names below
-   are its trace ABI; proofs and consumers use the same checked references by lane. */
-class BroadcastLanes(ports :: List.of(Endpoint)):
-  private field count = ports.length()
-  field names = if count == 2 | ["left", "right"] | for List (i in 0..count): "lane" ++ to_string(i)
+/* Extend the raw delivery events with the buffered contract's history and batch keys. */
+class BroadcastLanes(private count :: Nat):
+  extends DeliveryLanes
+  /* Size the history families from the very same ports bound by the delivery sampler. */
+  constructor (ports :: List.of(Endpoint)):
+    super(ports)(ports.length())
   private field suffix = if count == 2 | ["l", "r"] | for List (i in 0..count): to_string(i)
-  field delivery = event_family(names)
   field owed = history_family(suffix.map(fun (s): "owed_" ++ s))
   field pop = suffix.map(fun (s): "pop_" ++ s)
   field out = suffix.map(fun (s): "out_" ++ s)
-
-  /* Sample distinct physical handshakes; never infer a delivery on one lane from another. */
-  method transfers(ingress :: Endpoint):
-    def outputs = for Map (event in delivery, port in ports): values(event, port)
-    rv_transfers({"accepted": ingress} ++ outputs)
 
 /* Turn the caller's handshakes into reset epochs. Do not read
    transfer pins on reset, when even valid and ready can be outside the cycle contract. */

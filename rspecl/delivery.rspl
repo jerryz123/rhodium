@@ -1,0 +1,16 @@
+#lang rspecl
+/* Names and samples independent ready/valid deliveries without imposing a fanout protocol. */
+// SPDX-License-Identifier: Apache-2.0
+
+export DeliveryLanes
+
+/* Index output events in elaborated port order, keeping the two-output trace labels. */
+class DeliveryLanes(ports :: List.of(Endpoint)):
+  nonfinal
+  field names = if ports.length() == 2 | ["left", "right"] | for List (i in 0..ports.length()): "lane" ++ to_string(i)
+  field delivery = event_family(names)
+
+  /* Sample each handshake separately, including a delivery with no matching acceptance. */
+  method transfers(ingress :: Endpoint):
+    def outputs = for Map (event in delivery, port in ports): values(event, port)
+    rv_transfers({"accepted": ingress} ++ outputs)

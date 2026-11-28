@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import lib("flow/atomic-fork.rhdl") as rtl
+import lib("rspecl/delivery.rspl").DeliveryLanes
 
 /* An empty set of peers is ready: a one-output fork simply forwards valid. */
 fun all_ready_except(lanes :: List.of(Endpoint), excluded :: maybe(Nat)):
@@ -18,20 +19,18 @@ spec for rtl.AtomicFork:
     observe egress[i].valid = offered
     observe egress[i].bits = ingress.bits when offered
 
-  // Preserve the public left/right event names of the original two-output contract.
-  def names = if n == 2 | ["left", "right"] | for List (i in 0..n): "lane" ++ to_string(i)
-  def endpoints = for Map (name in names, lane in egress): values(name, lane)
-  events transfers = rv_transfers({"accepted": ingress} ++ endpoints)
+  def lanes = DeliveryLanes(egress)
+  events transfers = lanes.transfers(ingress)
   monitor:
     sample transfers
-    publish ["accepted"] ++ names
+    publish [accepted] ++ lanes.delivery
     batch take = present(accepted)
     batch incoming: ingress.bits.type = payload(accepted) when take
     // Each handshake is sampled separately. Agreement is a guarantee, not an assumption.
     def mutable together = const(Bool, #true)
-    for (name in names):
-      batch sent("send_" ++ name) = present(name)
-      batch word(name ++ "_word"): ingress.bits.type = payload(name) when sent
+    for (event in lanes.delivery, name in lanes.names):
+      batch sent("send_" ++ name) = present(event)
+      batch word(name ++ "_word"): ingress.bits.type = payload(event) when sent
       together := together && bool_equal(take, sent)
       guarantee (name ++ "-payload") = bits_equal(incoming, word) when take && sent
     guarantee "atomic-transfer" = together

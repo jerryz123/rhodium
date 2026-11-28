@@ -156,8 +156,10 @@ Each event carries its own endpoint's
 payload exactly when its valid and ready are both high. Pin direction and payload
 type come from the elaborated ports; use `rv_pins("valid", "ready", "data")`
 for three scalar pins. There is no implicit reset or choice of winner. Even a
-one-sided transfer remains visible, so the [fork guarantee](../examples/formal/atomic-fork.rspl)
-can reject it. For FIFO-style reset, accepted and retired events use
+one-sided transfer remains visible. The [atomic fork](../examples/formal/atomic-fork.rspl)
+uses [`DeliveryLanes(egress)`](delivery.rspl) to bind these events, then checks
+that they occur together and carry the accepted word. This sampler reads no
+reset pin and tracks no outstanding copies. For FIFO-style reset, accepted and retired events use
 `ready_valid_events`; add [`fifo_monitor`](fifo.rspl) to promise ordering and a bound.
 For a buffered broadcast, construct `lanes = BroadcastLanes(egress)` and bind
 `events transfers = lanes.transfers(ingress)` to sample the input and every
