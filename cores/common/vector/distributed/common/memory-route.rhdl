@@ -8,6 +8,8 @@ import:
   lib("cores/common/mmu/vector.rhdl") open
   "../../decode.rhdl" open
   "../../geometry.rhdl" open
+  "../../backend-kind.rhm".vector_dlen
+  lib("cores/common/vector-layout.rhm").vector_row_bytes
   "../../precheck.rhdl".vector_bounded_index
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/vector.rhm").VectorLength
@@ -35,7 +37,37 @@ bundle MemoryIssue(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
   owner: Bits(index_width(slots))
   kind: MemoryIssueKind
 
-/* Translation is an address-launch snapshot, not VRF preparation state. */
+/* The VU issue queues contain register geometry only, never translations or
+   address-ordering state. Reconstruct a row traversal command at the reader. */
+bundle MemoryOperandWork(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
+  layout: SegmentLayout()
+  data: VectorByteSpan(vlen)
+  predicate: VectorByteSpan(vlen)
+  displacement: Bits(index_width(vector_row_bytes(vector_dlen(vlen))))
+  masked: Bool
+  seed: Bool
+  owner: Bits(index_width(slots))
+  kind: MemoryIssueKind
+
+/* Supply only the geometry consumed by the operand and segment sequencers. */
+fun operand_geometry(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, work :: MemoryOperandWork(xlen, vlen, slots)) :~ MemoryCommand(xlen, vlen):
+  def blank :: MemoryCommand(xlen, vlen) = literal(MemoryCommand(xlen, vlen), 0)
+  blank.updated(~layout: work.layout, ~data: work.data, ~predicate: work.predicate, ~displacement: work.displacement, ~seed: work.seed, ~masked: work.masked)
+
+/* Project the VRF-side half of an instruction at the dispatch fork. */
+fun operand_work(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, issue :: MemoryIssue(xlen, vlen, slots)) :~ MemoryOperandWork(xlen, vlen, slots):
+  def c = issue.command
+  MemoryOperandWork(xlen, vlen, slots):
+    layout: c.layout
+    data: c.data
+    predicate: c.predicate
+    displacement: c.displacement
+    masked: c.masked
+    seed: c.seed
+    owner: issue.owner
+    kind: issue.kind
+
+/* Translation is captured at ordered VLSU allocation. */
 bundle MemoryLaunch(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
   issue: MemoryIssue(xlen, vlen, slots)
   pages: VectorWindowPages
@@ -84,4 +116,4 @@ fun resolved_issue(kind :: MemoryIssueKind) :~ Bool:
 fun inline_index_issue(kind :: MemoryIssueKind) :~ Bool:
   kind.is_one_of(MemoryIssueKind.InlineIndex, MemoryIssueKind.InlineOrderedIndex)
 
-export MemoryRoute MemoryIssueKind MemoryIssue MemoryLaunch MemoryEvent memory_route direct_memory_issue resolved_issue_kind resolved_issue inline_index_issue
+export MemoryOperandWork operand_work operand_geometry MemoryRoute MemoryIssueKind MemoryIssue MemoryLaunch MemoryEvent memory_route direct_memory_issue resolved_issue_kind resolved_issue inline_index_issue

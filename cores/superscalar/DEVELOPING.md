@@ -1530,11 +1530,17 @@ a stall or translation can change independently. With an external MMU,
 
 For the distributed backend, MEM also classifies whether this descriptor
 would take the direct route **if certified**, and captures that bit on the
-same edge as the descriptor. Only WB can let it follow an older opposite-kind
-vector memory operation: WB compares the descriptor's load/store kind with
-the live outstanding owner's kind and checks the proof and scalar memory
-ordering. A squash can leave the descriptor populated; without a live WB
-offer it cannot dispatch, retire, or issue a physical request.
+same edge as the descriptor. WB checks the proof, scalar memory ordering and
+whether the distributed backend can accept a follower of this kind. WB may
+enqueue a second direct load or store before its predecessor finishes AGEN.
+The VLSU snapshots dependencies at allocation, including entries that have
+not started AGEN. For a younger ordinary scalar access, MEM tests the
+translated cacheable byte range when sampling the lookup; an alias or
+unproven address replays instead of committing stale data. Checked operations,
+unallocated descriptors, and same-group predecessors remain conservative.
+A squash can leave the
+descriptor populated; without a live WB offer it cannot dispatch, retire, or
+issue a physical request.
 
 An accepted certified descriptor retires normally. Only uncertified memory enters
 the retained WB owner and its younger scalar WB authorization barrier. Keep

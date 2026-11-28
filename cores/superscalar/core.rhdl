@@ -37,6 +37,7 @@ import:
   lib("cores/common/vector/bundles.rhdl") open
   lib("cores/common/vector/precheck.rhdl") open
   lib("cores/common/vector/distributed/common/memory-route.rhdl") open
+  lib("cores/common/vector/distributed/mem/instruction-queue.rhdl").RowFootprint
   lib("cores/common/mmu/vector.rhdl") open
   lib("riscv/isa/vector-profile.rhm") open
   lib("riscv/rtl/vector.rhdl") open
@@ -351,6 +352,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   inst wb_memory_completion(SuperscalarMemoryCompletion(xlen))
   reg wb_ordered_memory_pending(~init: Bool(#false))
   reg wb_prior_memory_drained(~init: Bool(#false))
+  reg scalar_store_undrained(~init: Bool(#false))
   inst ex_multiply(SuperscalarMultiply(xlen, ~vector_enabled: vector_enabled, ~vector_slots: vector_slots))
   inst wb_divide(SuperscalarDivide(xlen, ~vector_slots: vector_slots))
   vector.service.multiply_request |> ex_multiply.vector_request
@@ -636,7 +638,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def integer_result_claim = vector_writes_gpr(control.vector) & control.writeback.enable & rr_rd[lane].any()
     def vector_execution_blocked = rr_vector[lane] & ((integer_result_claim & !wb_vector_scalar_available) ||| floating_source_pending ||| floating_destination_blocked)
     def integer_destination_pending = control.writeback.enable & scoreboard_busy(32, wb_vector_scoreboard.busy, rr_rd[lane])
-    def memory_order_blocked = control.memory.access.is_memory() & (vector.service.stores_pending ||| (control.memory.access.store_fault_class() & vector.service.loads_pending))
+    def memory_order_blocked = control.memory.access.is_memory() & !(Bool(distributed_rows) & control.memory.access.is_load_or_store()) & (vector.service.stores_pending ||| (control.memory.access.store_fault_class() & vector.service.loads_pending))
     (vector.service.certification_pending & (rr_vector[lane] ||| rr_vector_config[lane])) ||| vector_execution_blocked ||| integer_destination_pending ||| memory_order_blocked
 
   def rr_pipeline_empty = !any(for List (lane in 0..issue_width): ex_pipe[lane].egress.valid ||| mem_pipe[lane].egress.valid ||| wb_pipe[lane].egress.valid)
@@ -1159,6 +1161,22 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def mem_tokens :: Vec(issue_width, SuperscalarResult(xlen, hypervisor)) = vec(for List (stage in mem_pipe): stage.egress.bits)
   def mem_memory_lane = superscalar_service_lane(for List (lane in 0..issue_width): mem_valid[lane] & mem_tokens[lane].memory_active)
   def mem_memory :: SuperscalarResult(xlen, hypervisor) = mem_tokens[service_index(mem_memory_lane)]
+  wire wb_vector_before_lookup: Bool
+  def mem_vector_alias = if distributed_rows
+  | block:
+      def result = scalar_pipeline.response.bits
+      def address = result.physical_address.zext(64)
+      def offset = address[0..VectorPageOffsetBits]
+      def page = vector_page_number(address)
+      vector.scalar_probe.valid <== scalar_pipeline.response.valid & result.cached_physical
+      vector.scalar_probe.bits <== RowFootprint():
+        store: mem_memory.memory.access.store_fault_class()
+        pages: vec([page, page])
+        first: offset
+        last: offset + memory_access_last_offset(xlen, mem_memory.memory.width)[0..VectorPageOffsetBits]
+        crosses: Bool(#false)
+      vector.scalar_conflict ||| wb_vector_before_lookup
+  | Bool(#false)
   def mem_vector_lane = superscalar_service_lane(for List (lane in 0..issue_width): mem_valid[lane] & mem_tokens[lane].vector.memory)
   def mem_vector :: SuperscalarResult(xlen, hypervisor) = mem_tokens[service_index(mem_vector_lane)]
   // This read-only lookup must not depend on WB service readiness through squash.
@@ -1198,7 +1216,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     def mem_fault = mem_outcome.is_one_of(CachePipelineOutcome.PageFault, CachePipelineOutcome.AccessFault)
     def mem_disposition = priority_mux(~default: SuperscalarDisposition.Continue):
       mem_fault: SuperscalarDisposition.Fault
-      mem_outcome === CachePipelineOutcome.Replay: SuperscalarDisposition.Replay
+      (mem_outcome === CachePipelineOutcome.Replay) ||| (mem.memory.access.is_load_or_store() & mem_vector_alias): SuperscalarDisposition.Replay
 
     def mem_lookup_resolution = SuperscalarResolution(xlen):
       guest: scalar_pipeline.response.bits.guest.details
@@ -1502,6 +1520,7 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   def wb_vector_lane = superscalar_service_lane(for List (lane in 0..issue_width): wb_live_valid[lane] & wb_vectors[lane])
   def wb_vector = wb_live_group[service_index(wb_vector_lane)]
   def wb_vector_offer = wb_dispatch[service_index(wb_vector_lane)] & (if vector_enabled | wb_vector.vector.operation | Bool(#false))
+  wb_vector_before_lookup <== wb_vector_offer & wb_vector.vector.memory & (wb_vector.vector.store ||| mem_memory.memory.access.store_fault_class())
   def wb_vector_pc = wb_live_pcs[service_index(wb_vector_lane)]
   vector_fast.candidate <== wb_descriptor.certificate
   vector_fast.finish <== wb_vector_offer & wb_needs_last
@@ -1518,19 +1537,18 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
     | assert(vector_fast.candidate_current, "superscalar_mem_proof_context_survives_to_wb")
     | #void
 
-  // A certified opposite-kind operation can reserve its own access and
-  // datapath entries. This is not permission to issue a cache request.
+  // Certified operations may reserve a free native cursor. Address issue
+  // still checks physical overlap, age, and the cursor's actual readiness.
   def wb_follow_native:
     if distributed_rows
     | block:
         // MEM captured this kind with the surviving descriptor. Its value
         // while stale is not an offer; WB still qualifies age and dispatch.
         def store = wb_descriptor.control.store
-        def outstanding = vector.native_outstanding_store
         when (wb_vector_offer & wb_vector.vector.memory):
           assert(store === wb_vector.vector.store, "superscalar_native_offer_kind_matches_owner")
 
-        wb_direct_if_certified & wb_vector_certified & outstanding.valid & (outstanding.bits =/= store) & !scalar_memory.ordered_busy
+        wb_direct_if_certified & wb_vector_certified & vector.native_can_follow & !scalar_memory.ordered_busy & !scalar_store_undrained
     | Bool(#false)
   def wb_vector_ordered = !wb_vector.vector.memory ||| ((wb_prior_memory_drained ||| wb_follow_native) & !wb_memory_completion.pending & !wb_ordered_memory_pending)
   def wb_vector_gpr_write = wb_vector.vector.integer_destination & wb_vector.write
@@ -1662,7 +1680,8 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
       )
       wb_live_valid[lane] & scalar.memory_active & older_conflict
   )
-  def wb_memory_blocked = scalar_memory.ordered_busy ||| wb_ordered_memory_pending ||| vector.service.stores_pending ||| (wb_memory.memory.access.store_fault_class() & vector.service.loads_pending) ||| wb_group_memory_conflict
+  def wb_global_vector_block = !(Bool(distributed_rows) & wb_memory.memory.access.is_load_or_store()) & (vector.service.stores_pending ||| (wb_memory.memory.access.store_fault_class() & vector.service.loads_pending))
+  def wb_memory_blocked = scalar_memory.ordered_busy ||| wb_ordered_memory_pending ||| wb_global_vector_block ||| wb_group_memory_conflict
   def wb_prior_drained = wb_memory_completion.drained & scalar_memory.drained & ex_multiply.drained & wb_divide.drained & !wb_completion_count.any() & !rr_completion.valid & fp.drained & !vector.active & !wb_vector_scalar_pending & !wb_vector_fpr_pending
   scalar_split.request.valid <== wb_retained_ready & !wb_management & !wb_reservation_waiting & !wb_retained_vector
   memory_ports.scalar_guest_access <== wb_retained_owner.guest_access
@@ -1737,6 +1756,9 @@ sync_circuit SuperscalarCore(profile :: SuperscalarPipelineConfig = SuperscalarP
   // The physical service's drain may depend on today's admission. Sample a
   // quiet boundary before allowing a vector descriptor to begin page proof.
   wb_prior_memory_drained <== scalar_memory.drained & !scalar_memory.request.fire() & !scalar_pipeline.commit & !scalar_split.request.fire()
+  when (scalar_pipeline.commit ||| (scalar_memory.request.fire() & wb_request_memory.access.store_fault_class()) ||| scalar_split.request.fire()):
+    scalar_store_undrained <== Bool(#true)
+  elsewhen (scalar_memory.drained): scalar_store_undrained <== Bool(#false)
   def wb_admission_fault = scalar_memory.request.valid & scalar_memory.fault.valid
   wb_management_fault <== wb_management & wb_admission_fault
   wb_management_accepted <== wb_management & scalar_memory.request.fire()

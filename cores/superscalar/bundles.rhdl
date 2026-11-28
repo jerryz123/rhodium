@@ -789,6 +789,8 @@ bundle SuperscalarUncachedContext(Context :: DataType):
 
 /* Returns the MEM decision and raw aligned load beat; no allocation or mutation occurs here. */
 bundle SuperscalarLookupResult(xlen :: XLen):
+  cached_physical: Bool
+  physical_address: Bits(xlen.width)
   outcome: CachePipelineOutcome
   data: Bits(xlen.width)
   guest: RiscvGuestException()

@@ -123,6 +123,8 @@ sync_circuit SuperscalarVectorMemory(xlen :: XLen, slots :: Pow2Int):
       attempt: saved
       response:
         SuperscalarLookupResult(xlen):
+          cached_physical: Bool(#false)
+          physical_address: Bits(xlen.width)(0)
           outcome: result
           data: reply.response.data
           guest: reply.guest

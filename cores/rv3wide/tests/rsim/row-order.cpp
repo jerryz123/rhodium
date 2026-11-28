@@ -8,6 +8,8 @@ unsigned cycle, ack_at, acknowledgements, requests, retire_cycle;
 constexpr unsigned row_credits = 5;
 std::uint64_t pc = 0x8000, retired_pc, replay_pc, data, returned, staged;
 bool scalar_lookup, scalar_store, load_run, hold_loads;
+std::uint64_t scalar_pa;
+bool force_physical_alias, disjoint_scalar;
 unsigned loads, replies;
 bool certificate_current = true;
 unsigned fast_proofs;
@@ -31,11 +33,13 @@ std::deque<bool> ordered;
 unsigned release_at, last_reply;
 
 void step() {
-  CHECK(++cycle < 3000);
+  CHECK(++cycle < 4000); // Aggregate watchdog includes the four scalar alias/disjoint programs.
   // An accepted row holds the physical drain low until its real acknowledgement.
   memory_in.pdrained = loads == replies && requests == acknowledgements;
   memory_in.prequest.pready = pipeline_in.pcommit_uready = 1;
   pipeline_in.presponse.pvalid = scalar_lookup;
+  pipeline_in.presponse.pbits.pcached_uphysical = scalar_lookup;
+  pipeline_in.presponse.pbits.pphysical_uaddress = force_physical_alias ? 0x400 : scalar_pa;
   pipeline_in.presponse.pbits.poutcome = scalar_store ? 2 : 1;
   pipeline_in.presponse.pbits.pdata = data;
   row_memory_in.prequest.pready = !hold_requests;
@@ -165,7 +169,8 @@ void step() {
         staged = iterative_scatter ? bytes[2] : 0x33333333; ++requests; ack_at = cycle + 24;
       }
     }
-    if (requests != acknowledgements) CHECK(!pipeline_out.prequest.pvalid && !pipeline_out.pcommit && !memory_out.prequest.pvalid);
+    // Speculative tag/data reads are harmless. Only durable effects are forbidden.
+    if (requests != acknowledgements && !disjoint_scalar) CHECK(!pipeline_out.pcommit && !memory_out.prequest.pvalid);
     if (row_memory_in.presponse.pvalid && row_memory_out.presponse.pready) {
       const bool load = mixed ? !ordered.front() : load_run;
       if (mixed) { ordered.pop_front(); last_reply = cycle; release_at = cycle+24; }
@@ -179,6 +184,7 @@ void step() {
   }
   if (checked_gather) CHECK(!pipeline_out.prequest.pvalid);
   scalar_lookup = pipeline_out.prequest.pvalid;
+  scalar_pa = pipeline_out.prequest.pbits.pmemory.paddress;
   scalar_store = pipeline_out.prequest.pbits.pmemory.paccess == 2;
   tick_model(); eval();
 }
@@ -430,6 +436,17 @@ int main() {
     send(0x0ff0000f);
     CHECK(requests == before+1 && requests == acknowledgements);
     send(0x44000193); // x3: disjoint physical range in the same page
+    for (bool alias : {false,true}) for (bool store : {false,true}) {
+      const auto acks=acknowledgements;
+      send(0x02008427);
+      while(requests==acks) step();
+      force_physical_alias=alias;
+      disjoint_scalar=!alias;
+      send(store ? 0x0021a023u : 0x0001a503u); // sw x2,0(x3) or lw a0,0(x3)
+      CHECK(acknowledgements==acks+unsigned(alias));
+      force_physical_alias=disjoint_scalar=false;
+      while(acknowledgements!=requests) step();
+    }
     mixed = true;
     for (bool store_first : {false, true}) {
       const auto old_loads = loads, old_stores = requests;

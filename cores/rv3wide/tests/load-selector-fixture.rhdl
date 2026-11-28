@@ -19,7 +19,7 @@ sync_circuit LoadSelectorFixture(xlen :: XLen):
   interface element(Decoupled(CheckedIndexElement(xlen, vlen)), ~role: consumer)
   interface memory(VectorRowMemory(vlen div 2), ~role: requester)
   output normal_accepted: Bool
-  start |> vlsu.start[0]
+  start |> vlsu.enqueue[0]
   normal |> trace_event("test/normal") |> pipe(1) |> vlsu.masks
   element |> trace_event("test/element") |> vlsu.checked_element
   normal_accepted <== vlsu.masks.fire()
@@ -28,8 +28,9 @@ sync_circuit LoadSelectorFixture(xlen :: XLen):
   vlsu.stream_live <== Bool(#true)
   vlsu.stream_store <== Bool(#false)
   vlsu.oldest_owner <== Owner(0)
+  vlsu.drain_owner <== Owner(0)
   vlsu.trace_instructions <== literal(Vec(4, VectorTraceInstruction(xlen)), 0)
-  for (port in [vlsu.start[1], vlsu.store_data, vlsu.indices, vlsu.splat, vlsu.load_setup, vlsu.scatter.operand]):
+  for (port in [vlsu.scalar_probe, vlsu.enqueue[1], vlsu.store_data, vlsu.indices, vlsu.splat, vlsu.load_setup, vlsu.scatter.operand]):
     port.field("valid") <== Bool(#false)
     port.field("bits") <== dont_care(port.field("bits").type)
   vlsu.load_result.ready <== Bool(#true)

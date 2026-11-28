@@ -1,5 +1,5 @@
 #lang rhodium
-/* Reserves the access and VRF-sequencing contexts for each distributed instruction kind. */
+/* Routes execute work and retains checked memory descriptors until the checker can start. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -17,16 +17,14 @@ fun vector_dispatch_empty(xlen :: XLen, vlen :: VectorLength, d :: VectorDescrip
   def extent = compute_extent(xlen, vlen, d)
   mux(d.control.memory, d.state.vstart >= d.beat_limit(vlen).zext(xlen.width), !extent.has_body() & !extent.scalar_result)
 
-/* A load reserves VLIQ and VLSeq together, a store VSIQ and VSSeq, and an
-   execute only VXSeq. Each pair shares its immutable descriptor and owner.
-   Starting a datapath consumes the start offer, not its occupied entry. */
+/* Only checked memory enters these heads. Reclaim, not starting a slice,
+   releases its owner; native memory allocates directly in the VLSU. */
 sync_circuit DistributedVectorDispatch(xlen :: XLen, slots :: Pow2Int):
   def Entry = VectorDispatchEntry(xlen, slots)
   interface ingress(Decoupled(Entry), ~role: consumer)
   interface heads[MemoryPaths.length()](Decoupled(Entry), ~role: producer)
   def Owner = Bits(index_width(slots))
   input memory_busy: Vec(MemoryPaths.length(), Bool)
-  input native_access: Bool
   interface native_execute(Decoupled(Entry), ~role: producer)
   interface reclaimed(Valid(Owner), ~role: consumer)
   def paths = ingress |> demux_flow(VectorDispatchKind.values().length(), entry):
@@ -45,7 +43,7 @@ sync_circuit DistributedVectorDispatch(xlen :: XLen, slots :: Pow2Int):
     def dispatch = if kind == LoadPath | VectorDispatchKind.Load | VectorDispatchKind.Store
     def input_path = paths[dispatch.packed_value()]
     def owner = descriptors[kind].owner
-    when (input_path.fire() & !native_access): checked_live[kind] <== Bool(#true)
+    when (input_path.fire()): checked_live[kind] <== Bool(#true)
     elsewhen (releases(reclaimed, owner)): checked_live[kind] <== Bool(#false)
     def available = !memory_busy[kind] & !checked_live[kind]
     input_path.ready <== !starting[kind] & available

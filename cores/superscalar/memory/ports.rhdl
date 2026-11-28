@@ -39,6 +39,8 @@ sync_circuit SuperscalarMemoryPorts(xlen :: XLen, slots :: Pow2Int):
 
   pipeline_vector <== !scalar_pipeline.request.valid
   def slow = SuperscalarLookupResult(xlen):
+    cached_physical: Bool(#false)
+    physical_address: Bits(xlen.width)(0)
     outcome: CachePipelineOutcome.Slow
     data: Bits(xlen.width)(0)
     guest: literal(RiscvGuestException(), 0)

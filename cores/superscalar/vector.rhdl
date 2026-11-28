@@ -4,6 +4,7 @@
 
 import:
   lib("cores/common/vector/backend-kind.rhm") open
+  lib("cores/common/vector/distributed/mem/instruction-queue.rhdl").RowFootprint
   lib("cores/common/vector/distributed/backend.rhdl").DistributedVectorBackend
   "../common/vector/profile.rhm".DefaultVectorInstructionOwners
   lib("cores/common/vector/service.rhdl").VectorExecutionService
@@ -48,8 +49,12 @@ sync_circuit SuperscalarVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vect
       interface element_translation(VectorElementTranslation(), ~role: requester)
       backend.element_translation <=> element_translation
       input window_pages: VectorWindowPages
-      interface native_outstanding_store(Valid(Bool), ~role: producer)
-      backend.native_outstanding_store |> native_outstanding_store
+      interface scalar_probe(Valid(RowFootprint()), ~role: consumer)
+      scalar_probe |> backend.scalar_probe
+      output scalar_conflict: Bool
+      scalar_conflict <== backend.scalar_conflict
+      output native_can_follow: Bool
+      native_can_follow <== backend.native_can_follow
       backend.row_memory <=> row_memory
       backend.window_pages <== window_pages
       backend.memory_drained <== memory.drained

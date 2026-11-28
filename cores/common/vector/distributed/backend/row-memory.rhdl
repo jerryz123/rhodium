@@ -17,6 +17,7 @@ import:
   "../common/row-types.rhdl" open
   "../common/memory-route.rhdl" open
   "../mem/vlsu.rhdl".VectorVLSU
+  "../mem/instruction-queue.rhdl".RowFootprint
   "load-sequencer.rhdl".VectorLoadSequencer
   "store-sequencer.rhdl".VectorStoreSequencer
 
@@ -36,7 +37,7 @@ sync_circuit VectorRowEngine(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   interface store_reads(VectorStoreReadChain(Owner), ~role: engine)
   interface chain(VectorLoadChain(Owner), ~role: engine)
   output busy: Bool
-  interface outstanding_store(Valid(Bool), ~role: producer)
+  output physical_pending: Bool
   interface memory(VectorRowMemory(dlen), ~role: requester)
   interface write(Decoupled(VectorRegisterWrite(dlen, vlen)), ~role: producer)
   interface read(Decoupled(RowAddress), ~role: producer)
@@ -51,11 +52,15 @@ sync_circuit VectorRowEngine(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   vlsu.oldest_owner <== oldest_owner
   vlsu.trace_instructions <== trace_instructions
   inst loads(VectorLoadSequencer(xlen, vlen, slots))
+  interface scalar_probe(Valid(RowFootprint()), ~role: consumer)
+  scalar_probe |> vlsu.scalar_probe
+  output scalar_conflict: Bool
+  scalar_conflict <== vlsu.scalar_conflict
   inst stores(VectorStoreSequencer(xlen, vlen, slots, ~trace_isa: trace_isa))
   stores.trace_instructions <== trace_instructions
   def Array(load, store) = prepare |> demux_flow(2, entry => entry.command.store)
   splat |> vlsu.splat
-  load |> loads.prepare
+  load |> loads.input_work
   checked_element |> vlsu.checked_element
   vlsu.stream_live <== stream_live
   vlsu.stream_store <== stream_store
@@ -67,7 +72,7 @@ sync_circuit VectorRowEngine(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   stores.scatter_live <== scatter_live
   stores.scatter_owner <== stream_owner
   vlsu.scatter <=> stores.scatter
-  for (i in MemoryPaths): launch[i] |> vlsu.start[i]
+  for (i in MemoryPaths): launch[i] |> vlsu.enqueue[i]
   loads.rows |> vlsu.masks
   def isa = trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv")
   (stores.rows |> trace_event("vector/store.sequence", ~stalls: #true, ~fields: entry):
@@ -81,6 +86,7 @@ sync_circuit VectorRowEngine(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   ) |> vlsu.store_data
   stores.room_after_capture <== vlsu.store_room_after_capture
   loads.return_setup |> vlsu.load_setup
+  vlsu.drain_owner <== loads.chain.write_owner
   vlsu.load_result |> loads.result
   vlsu.load_visit |> loads.visit
   loads.returns_pending <== vlsu.returns_pending
@@ -100,10 +106,10 @@ sync_circuit VectorRowEngine(xlen :: XLen, vlen :: VectorLength, slots :: Pow2In
   indices |> vlsu.indices
   loads.mask <=> mask[LoadPath]
   stores.mask <=> mask[StorePath]
-  unavailable <== vec([vlsu.resident[LoadPath] ||| loads.busy, vlsu.resident[StorePath] ||| stores.busy])
-  busy <== unavailable.as_bits().any() ||| vlsu.store_data_pending
-  outstanding_store.valid <== vlsu.resident[LoadPath] ^ vlsu.resident[StorePath]
-  outstanding_store.bits <== vlsu.resident[StorePath]
+  def store_busy = vlsu.resident[StorePath] ||| stores.busy
+  unavailable <== vec([!loads.room ||| !vlsu.room[LoadPath], stores.busy ||| !vlsu.room[StorePath]])
+  busy <== vlsu.resident[LoadPath] ||| loads.busy ||| store_busy ||| vlsu.store_data_pending
+  physical_pending <== vlsu.resident.as_bits().any()
   vlsu.issued |> issued
   vlsu.delivered |> delivered
   // Slice completions feed the iterative checker, not the macro tracker.

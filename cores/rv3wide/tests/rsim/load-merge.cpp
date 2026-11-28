@@ -207,7 +207,8 @@ static void strided_peer(bool store,int stride,bool masked) {
     eval();
     if(t==0) CHECK(prepare_out.pready);
     const bool peer_ready=store ? launch_0_out.pready : launch_1_out.pready;
-    if(replies<total && !admitted) { CHECK(!peer_ready); ++waits; }
+    if(t==0) CHECK(peer_ready);
+    if(sent==total && replies<total) { CHECK(!memory_out.prequest.pvalid); ++waits; }
     bool launch=peer.pvalid && peer_ready;
     if(hold && replies<sent) ++ack_stalls;
     if(!store && !writes) CHECK(chain_out.punwritten_uvd & (UINT64_C(1)<<16));

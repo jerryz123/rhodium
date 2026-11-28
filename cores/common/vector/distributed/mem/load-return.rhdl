@@ -27,27 +27,29 @@ sync_circuit VectorLoadReturn(xlen :: XLen, vlen :: VectorLength, Owner :: DataT
   interface element_drained(Valid(Owner), ~role: producer)
   input reserve: Bool
   output credits: MemoryPendingCount
-  reg pending(~init: MemoryPendingCount(0))
-  def loads = returned |> queue(MemoryRowCredits)
+  input issue_owner: Owner
+  input drain_owner: Owner
+  output head_pending: Bool
+  def buffered = returned |> queue(MemoryRowCredits)
+  def loads = buffered |> gate_flow(buffered.bits.credit.owner === drain_owner)
 
-  reg layout(SegmentLayout())
-  reg elementwise(Bool)
-  reg displacement(Bits(lane_bits))
-  reg seed_lane(Bits(lane_bits))
-  reg seeding(Bool)
-  when (setup.valid):
-    layout <== setup.bits.layout
-    elementwise <== setup.bits.elementwise
-    displacement <== setup.bits.displacement
-    seeding <== setup.bits.seed
-    seed_lane <== setup.bits.seed_lane
+  reg pending(~init: literal(Vec(2, MemoryPendingCount), 0))
+  reg owners(Vec(2, Owner))
+  def existing = vec(for List (i in 0..2): pending[i].any() & (owners[i] === issue_owner))
+  def bank = mux(existing.as_bits().any(), existing[1], pending[0].any())
+  for (i in 0..2):
+    def add = reserve & (bank === Bool(i == 1))
+    def remove = loads.fire() & pending[i].any() & (owners[i] === drain_owner)
+    when add: owners[i] <== issue_owner
+    when (add =/= remove): pending[i] <== mux(add, pending[i] + MemoryPendingCount(1), pending[i] - MemoryPendingCount(1))
+  def format = setup.bits
+  def layout = format.layout
   inst merger(VectorLoadMerger(xlen, vlen, Owner))
-  merger.elementwise <== elementwise
-  merger.displacement <== displacement
+  merger.elementwise <== format.elementwise
+  merger.displacement <== format.displacement
   loads |> merger.beat
-  when (reserve =/= loads.fire()):
-    pending <== mux(reserve, pending + MemoryPendingCount(1), pending - MemoryPendingCount(1))
-  credits <== pending
+  credits <== pending[0] + pending[1]
+  head_pending <== any(for List (i in 0..2): pending[i].any() & (owners[i] === drain_owner))
   element_drained.valid <== loads.fire() & loads.bits.credit.element_end
   element_drained.bits <== loads.bits.credit.owner
   reg ordinal(~init: Bits(3)(0))
@@ -77,10 +79,10 @@ sync_circuit VectorLoadReturn(xlen :: XLen, vlen :: VectorLength, Owner :: DataT
   result.valid <== (merger.result.valid & enabled) ||| (!merger.result.valid & splat.valid)
   def advance = !enabled ||| result.ready
   merger.result.ready <== final_field & advance
-  when (merger.result.fire() & seeding): seed <== (normal.data >> (seed_lane ++ Bits(3)(0)))[0..math.min(xlen.width, dlen)]
+  when (merger.result.fire() & format.seed): seed <== (normal.data >> (format.seed_lane ++ Bits(3)(0)))[0..math.min(xlen.width, dlen)]
   // A normal field reads the current merge; a splat rereads the seed captured
   // at its original grant. This window describes provenance, not a data FIFO.
-  def capture_seed = merger.result.fire() & seeding
+  def capture_seed = merger.result.fire() & format.seed
   reg seed_valid(~init: Bool(#false))
   when (setup.valid ||| capture_seed): seed_valid <== capture_seed
   describe_interface_window_storage(

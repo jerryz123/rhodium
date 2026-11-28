@@ -15,34 +15,14 @@ import:
   "../common/row-types.rhdl" open
   "beat-packer.rhdl".VectorBeatPacker
   "load-return.rhdl".VectorLoadReturn
+  "instruction-queue.rhdl" open
   "../common/memory-command.rhdl" open
   "../../register-file.rhdl".VectorRegisterWrite
   "../common/memory-route.rhdl" open
 
 
-/* Physical byte spans exclude inactive prefixes and tails but conservatively include mask holes.
-   Each half is a page-local interval; the two translated pages need not be adjacent. */
-bundle RowFootprint():
-  pages: VectorWindowPages
-  first: Bits(VectorPageOffsetBits)
-  last: Bits(VectorPageOffsetBits)
-  crosses: Bool
-
-/* Two virtual aliases conflict whenever any pair of enabled physical intervals intersects. */
-fun physical_overlap(xlen :: XLen, a :: RowFootprint(), b :: RowFootprint()) :~ Bool:
-  def ppn_bits = math.min(VectorPageNumber.packed_width(), xlen.width - VectorPageOffsetBits) // Width presented to the physical cache port.
-  /* Compare the first or last page interval of each footprint. */
-  fun intersects(i :: Nat, j :: Nat) :~ Bool:
-    def a_lo = if i == 0 | a.first | Bits(VectorPageOffsetBits)(0)
-    def b_lo = if j == 0 | b.first | Bits(VectorPageOffsetBits)(0)
-    def a_hi = if i == 0 | mux(a.crosses, !Bits(VectorPageOffsetBits)(0), a.last) | a.last
-    def b_hi = if j == 0 | mux(b.crosses, !Bits(VectorPageOffsetBits)(0), b.last) | b.last
-    (Bool(i == 0) ||| a.crosses) & (Bool(j == 0) ||| b.crosses) & (a.pages[i][0..ppn_bits] === b.pages[j][0..ppn_bits]) & (a_lo <= b_hi) & (b_lo <= a_hi)
-  any(for List (i in 0..VectorWindowPages.length): any(for List (j in 0..VectorWindowPages.length): intersects(i, j)))
-
-/* Install older cursors first (enforced by the dispatch scoreboard). A resident
-   peer gates only overlapping physical spans. Arbitrate row offers at L1D;
-   buffer and format load replies independently of store ACKs. */
+/* The VLIQ and VSIQ independently allocate instructions, install address
+   cursors, and discharge physical obligations on ordered replies. */
 sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~trace_isa: trace_isa :: maybe(String) = #false):
   def dlen = vector_dlen(vlen)
   def isa = trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv")
@@ -51,7 +31,7 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
   def Credit = RowCredit(xlen, vlen, Owner)
   input oldest_owner: Owner
   input trace_instructions: Vec(slots, VectorTraceInstruction(xlen))
-  interface start[MemoryPaths.length()](Decoupled(MemoryLaunch(xlen, vlen, slots)), ~role: consumer)
+  interface enqueue[MemoryPaths.length()](Decoupled(MemoryLaunch(xlen, vlen, slots)), ~role: consumer)
   interface checked_element(Decoupled(CheckedIndexElement(xlen, vlen)), ~role: consumer)
   input(stream_live, stream_store): Bool
   interface scatter(ScatterOperand(dlen), ~role: issuer)
@@ -70,6 +50,8 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
   interface stored(Valid(ReturnedRow(xlen, vlen, Owner)), ~role: producer)
   output resident: Vec(MemoryPaths.length(), Bool)
   inst load_return(VectorLoadReturn(xlen, vlen, Owner))
+  input drain_owner: Owner
+  load_return.drain_owner <== drain_owner
   load_setup |> load_return.setup
   splat |> load_return.splat
   load_return.result |> load_result
@@ -77,7 +59,7 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
   load_return.element_drained |> element_loaded
   def load_credits = load_return.credits
   output returns_pending: Bool
-  returns_pending <== load_credits.any()
+  returns_pending <== load_return.head_pending
   reg occupied(~init: Bits(MemoryPaths.length())(0).as_vec(Bool))
   reg sequencing(~init: Bits(MemoryPaths.length())(0).as_vec(Bool))
   reg owners(Vec(MemoryPaths.length(), Owner))
@@ -91,29 +73,38 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
   // Admitted fragments touch at most two adjacent virtual pages; VPN bit 0 distinguishes them.
   reg first_page_parity(Vec(MemoryPaths.length(), Bits(1)))
   reg spans(Vec(MemoryPaths.length(), RowFootprint()))
-  reg older_store(Bool)
+  def older_store = (owners[StorePath] - oldest_owner) < (owners[LoadPath] - oldest_owner)
   def RequestCount = Bits(index_width(MemoryRequestEntries + 1))
   reg awaiting(~init: literal(Vec(MemoryPaths.length(), RequestCount), 0))
   reg independent_load(Bool)
-
-  resident <== occupied
+  inst vliq(VectorMemoryInstructions(xlen, vlen, slots, ~store: #false))
+  inst vsiq(VectorMemoryInstructions(xlen, vlen, slots, ~store: #true))
+  def queues = for InstanceArray (q in [vliq, vsiq]): q
+  def start :: Array.later_of(Endpoint) = for Array (i in MemoryPaths): queues[i].issue
+  for (i in MemoryPaths):
+    enqueue[i] |> queues[i].enqueue
+    def peer = queues[1 - i]
+    queues[i].peer_live <== peer.live_mask
+    queues[i].peer_spans <== peer.spans
+    queues[i].peer_release <== peer.release_mask
+  resident <== vec(for List (i in MemoryPaths): queues[i].live_mask.any())
+  output room: Vec(2, Bool)
+  room <== vec(for List (i in MemoryPaths): queues[i].room)
+  interface scalar_probe(Valid(RowFootprint()), ~role: consumer)
+  output scalar_conflict: Bool
+  def conflicts = for List (path in MemoryPaths):
+    def q = queues[path]
+    (Bool(path == StorePath) ||| scalar_probe.bits.store) & any(for List (i in 0..2): q.live_mask.as_vec(Bool)[i] & (!scalar_probe.valid ||| physical_overlap(xlen, scalar_probe.bits, q.spans[i])))
+  scalar_conflict <== any(conflicts)
   def first_rows = for List (i in MemoryPaths):
     def launch = start[i]
     def command = launch.bits.issue.command
     def kind = launch.bits.issue.kind
-    def ppns = launch.bits.pages
     def by_element = kind =/= MemoryIssueKind.Contiguous
-    def footprint = RowFootprint():
-      pages: ppns
-      first: command.first
-      last: command.last
-      crosses: command.crosses
-    def peer = if i == LoadPath | StorePath | LoadPath
+    def footprint = physical_span(xlen, vlen, slots, launch.bits)
     def stream = kind === MemoryIssueKind.ResolvedStream
-    // Reuse only the address cursor. Previously issued physical fragments
-    // retain their owner, register offset, and completion boundary in credits.
     def reuse = stream & streaming[i] & !sequencing[i] & (launch.bits.issue.owner === owners[i])
-    launch.ready <== (!occupied[i] ||| reuse) & (!occupied[peer] ||| (!streaming[peer] & !stream & !physical_overlap(xlen, footprint, spans[peer])))
+    launch.ready <== !occupied[i] ||| reuse
     when (launch.fire()):
       kinds[i] <== kind
       services[i] <== launch.bits.service
@@ -123,12 +114,11 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
       first_page_parity[i] <== command.address[VectorPageOffsetBits]
       spans[i] <== footprint
     mux(by_element, command.address, command.address.align_down(row_bytes))
-  when (start[LoadPath].fire() ||| start[StorePath].fire()): older_store <== start[LoadPath].fire()
   def load_start = start[LoadPath]
   when (load_start.fire()):
     def issue = load_start.bits.issue
     independent_load <== (issue.kind === MemoryIssueKind.Contiguous) & (load_start.bits.service === VectorMemoryService.Cached) & !issue.command.masked & !issue.command.layout.nf.any()
-  assert(!(start[LoadPath].fire() & start[StorePath].fire()), "older_vector_memory_cursor_installed_first")
+  assert(!(enqueue[LoadPath].fire() & enqueue[StorePath].fire()), "one_ordered_vector_memory_allocation")
   /* Match prepared operands to their authorized cursor. Only ordered indexed
      elements wait for a reply here; unordered elements share the beat credits. */
   fun admitted_rows(source :: Endpoint, path :: Nat) :~ Endpoint:
@@ -155,9 +145,11 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
   output store_data_pending: Bool
   store_data_pending <== store_buffer.egress.valid
   inst load_metadata(Queue(Credit, MemoryRequestEntries))
-  // The store cursor owns every outstanding ACK until drain; per fragment
-  // only the element boundary is needed, not its data, address or destination.
-  inst store_acks(Queue(Bool, MemoryStoreAckEntries))
+  /* Acknowledgements carry their original owner after SAS advances. */
+  bundle StoreAck():
+    owner: Owner
+    element_end: Bool
+  inst store_acks(Queue(StoreAck(), MemoryStoreAckEntries))
   def oldest_load = independent_load & (owners[LoadPath] === oldest_owner)
   def load_room = load_metadata.ingress.ready & (oldest_load ||| (load_credits < MemoryPendingCount(MemoryRowCredits)))
   // Same-page elements replace the current address and operand lane, not its
@@ -270,7 +262,10 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
 
   def Array(load_issue, store_issue) = metadata |> demux_flow(2, req => req.store)
   load_issue |> map_flow(_r => issue_context) |> load_metadata.ingress
-  store_issue |> map_flow(_r => issue_context.element_end) |> store_acks.ingress
+  (store_issue |> map_flow(_r => StoreAck()):
+     owner: issue_context.owner
+     element_end: issue_context.element_end
+  ) |> store_acks.ingress
   def Array(load_reply, store_reply) = memory.response |> demux_flow(2, reply => reply.store)
   def load = Array(load_reply, load_metadata.egress) |> zip_flow(reply, ctx):
     ReturnedRow(xlen, vlen, Owner):
@@ -294,6 +289,7 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
     locked_store <== store
   def accepted = memory.request.fire()
   load_return.reserve <== accepted & !store
+  load_return.issue_owner <== owners[LoadPath]
   indices.ready <== prepared.fire() & inline_index & ((lane === !StoreLane(0)) ||| prepared.bits.last)
   def tail = prepared.fire() & prepared.bits.last
   checked_element.ready <== occupied[path] & streaming[path] & (!sequencing[path] ||| (tail & (store === stream_store)))
@@ -322,25 +318,31 @@ sync_circuit VectorVLSU(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, ~t
     credit: issue_context
     data: payload
 
-  // Deliver one completion per cycle, retaining a simultaneous peer completion.
-  def delivery = vec(for List (i in MemoryPaths): occupied[i] & !sequencing[i] & !awaiting[i].any() & !(stream_live & (stream_store === Bool(i == StorePath))))
-  delivered.valid <== delivery.as_bits().any()
-  def delivered_path = mux(delivery[LoadPath], Bits(1)(LoadPath), Bits(1)(StorePath))
-  delivered.bits <== MemoryEvent(slots):
-    owner: owners[delivered_path]
-    checked: resolved_issue(kinds[delivered_path])
+  def first_done :: Endpoint = queues[LoadPath].done
+  def second_done :: Endpoint = queues[StorePath].done
+  first_done.ready <== Bool(#true)
+  second_done.ready <== !first_done.valid
+  delivered.valid <== first_done.valid ||| second_done.valid
+  delivered.bits <== mux(first_done.valid, first_done.bits, second_done.bits)
   output store_delivered: Bool
-  def release_store = delivery[StorePath] & !delivery[LoadPath]
-  store_delivered <== release_store & !streaming[StorePath]
+  store_delivered <== second_done.fire() & !((second_done.bits.owner === owners[StorePath]) & streaming[StorePath])
   interface element_stored(Valid(Owner), ~role: producer)
-  element_stored.valid <== ack.fire() & ack.bits
-  element_stored.bits <== owners[StorePath]
+  element_stored.valid <== ack.fire() & ack.bits.element_end
+  element_stored.bits <== ack.bits.owner
   for (i in MemoryPaths):
     def launching = start[i].fire()
     def chosen = selected === Bits(1)(i)
-    def delivering = if i == LoadPath | delivery[LoadPath] | release_store
+    def q = queues[i]
+    def delivering = mux(resolved_issue(kinds[i]), q.done.fire() & (q.done.bits.owner === owners[i]), tail & chosen)
+    q.cursor_owner <== owners[i]
+    q.last <== tail & chosen
+    q.continuation <== checked_element.fire() & (stream_store === Bool(i == StorePath))
+    q.stream_live <== stream_live & (stream_store === Bool(i == StorePath))
+    q.response_owner <== if i == LoadPath | load.bits.credit.owner | ack.bits.owner
     def issuing = accepted & chosen
     def returning = if i == LoadPath | load.fire() | ack.fire()
+    q.request <== issuing
+    q.response <== returning
     // A fragment belongs to the installed address cursor even if it uses a
     // checked element rather than a prepared row. Scatter uses that same owner
     // to demand VS3; the store AGEN itself keeps the packer's data lineage.

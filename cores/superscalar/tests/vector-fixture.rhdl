@@ -54,6 +54,8 @@ sync_circuit SuperscalarVectorFixture(~xlen: xlen :: XLen = XLen.X64, ~vlen: vle
   if (vector_backend == VectorBackendKind.Distributed)
   | block:
       input(stall_gpr, stall_fpr): Bool
+      vector.scalar_probe.valid <== Bool(#false)
+      vector.scalar_probe.bits <== dont_care(vector.scalar_probe.bits.type)
       input(disable_fp, separate_fpr): Bool
       input fpr_source: Bits(xlen.width)
       output(fp_illegal, reads_frs1): Bool

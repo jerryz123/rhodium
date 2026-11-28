@@ -21,7 +21,8 @@ import:
 sync_circuit VectorLoadSequencer(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
   def dlen = vector_dlen(vlen)
   def Owner = Bits(index_width(slots))
-  interface prepare(Decoupled(MemoryIssue(xlen, vlen, slots)), ~role: consumer)
+  interface input_work(Decoupled(MemoryIssue(xlen, vlen, slots)), ~role: consumer)
+  def prepare = input_work |> map_flow(entry => operand_work(xlen, vlen, slots, entry))
   interface rows(Decoupled(OwnedRow(PreparedBeat(vlen), Owner)), ~role: producer)
   interface result(Decoupled(VectorRegisterWrite(dlen, vlen)), ~role: consumer)
   interface return_setup(Valid(LoadReturnSetup(dlen)), ~role: producer)
@@ -35,89 +36,129 @@ sync_circuit VectorLoadSequencer(xlen :: XLen, vlen :: VectorLength, slots :: Po
   input gather_live: Bool
   def singleton = resolved_issue(prepare.bits.kind)
   interface gather_row(Valid(RowAddress), ~role: consumer)
-  reg active(~init: Bool(#false))
-  reg closed(~init: Bool(#false))
-  reg owner(Owner)
-  reg checked(Bool)
-  reg streaming(Bool)
+  // Datapath issue queue: retain only mask, destination and formatting controls.
+  // The VLSU owns all physical addresses and memory ordering.
+  def Issue = MemoryOperandWork(xlen, vlen, slots)
+  reg entries(Vec(2, Issue))
+  reg enqueue(~init: Bits(1)(0))
+  reg operand_head(~init: Bits(1)(0))
+  reg drain(~init: Bits(1)(0))
+  reg live(~init: Bits(2)(0).as_vec(Bool))
+  reg issued(~init: Bits(2)(0).as_vec(Bool))
+  def latest = !enqueue
+  def access = entries[operand_head]
+  def draining = entries[drain]
+  def checked = resolved_issue(draining.kind)
+  def stream = draining.kind === MemoryIssueKind.ResolvedStream
+  def empty = !live.as_bits().any()
+  def reuse = live[drain] & stream & issued[drain] & (prepare.bits.kind === MemoryIssueKind.ResolvedStream) & (prepare.bits.owner === draining.owner)
+  def unique_owner = !any(for List (i in 0..2): live[i] & (entries[i].owner === prepare.bits.owner))
+  output room: Bool
+  room <== !live[enqueue] & (empty ||| !checked)
+  prepare.ready <== reuse ||| (room & (empty ||| !singleton) & unique_owner)
+  def slot = mux(reuse, drain, enqueue)
+  def push = prepare.fire()
+  busy <== !empty
+
   inst operands(VectorMemoryRowSequencer(xlen, vlen, ~store: #false))
-  def command = prepare.bits.command
-  def values(data_rows, predicate_rows) = memory_command_rows(xlen, vlen, command)
-  def unordered_slice = prepare.bits.kind === MemoryIssueKind.ResolvedStream
-  def reuse = streaming & unordered_slice & closed & (prepare.bits.owner === owner)
-  prepare |> gate_flow(!active ||| reuse) |> map_flow(entry => entry.command) |> to_valid() |> operands.launch
-  def lane_bits = index_width(dlen div 8)
-  reg displacement(Bits(lane_bits))
-  reg elementwise(Bool)
-  reg eew(Bits(2))
   inst packer(VectorBeatPacker(vlen, ~store: #false))
-  packer.elementwise <== elementwise
-  packer.eew <== eew
-  packer.displacement <== displacement
+  def command = operand_geometry(xlen, vlen, slots, access)
+  packer.eew <== command.layout.eew
+  packer.elementwise <== access.kind =/= MemoryIssueKind.Contiguous
+  packer.displacement <== command.displacement
   operands.prepared |> packer.source
   (packer.beat |> map_flow(r => OwnedRow(PreparedBeat(vlen), Owner)):
-     owner: owner
+     owner: access.owner
      payload: r
   ) |> rows
+  def last = rows.fire() & rows.bits.payload.last
+  def advance = last & !resolved_issue(access.kind)
+  def selected = mux(advance, !operand_head, operand_head)
+  def bypass = push & (slot === selected)
+  def queued = advance & live[selected] & !issued[selected]
+  def saved = inject_interface(Valid(Issue), ~valid: queued, ~bits: entries[selected])
+  describe_interface_retained_bank(
+    for List (i in 0..2): push & (slot === Bits(1)(i)),
+    for List (i in 0..2): last & (operand_head === Bits(1)(i)),
+    for List (i in 0..2): live[i] & !issued[i],
+    ~grants: [for List (i in 0..2): selected === Bits(1)(i)],
+    ~name: "load-instruction"
+  )
+  describe_interface_contract(prepare, saved, "load-instruction", ~trace_model: interface_trace_retained_bank(~name: "load-instruction"))
+  def incoming = observe_transfer(prepare) |> filter_valid(_entry => bypass)
+  def start = Array(incoming, saved) |> valid_arbiter()
+  start |> map_valid(entry => operand_geometry(xlen, vlen, slots, entry)) |> operands.launch
+  operands.singleton <== resolved_issue(start.bits.kind)
   operands.mask <=> mask
-  chain.owner <== owner
   operands.older_writes <== chain.older_writes
-  operands.singleton <== singleton
   operands.capacity <== Bool(#true)
   operands.room_after_capture <== Bool(#false)
   operands.read.ready <== Bool(#false)
   operands.read_result.valid <== Bool(#false)
   operands.read_result.bits <== dont_care(Bits(dlen))
 
-  return_setup.valid <== prepare.fire()
+  def format = operand_geometry(xlen, vlen, slots, draining)
+  return_setup.valid <== push & (slot === drain)
   return_setup.bits <== LoadReturnSetup(dlen):
-    layout: command.layout
-    displacement: command.displacement
-    elementwise: prepare.bits.kind =/= MemoryIssueKind.Contiguous
-    seed: command.seed
-    seed_lane: command.data.begin[0..lane_bits]
+    layout: format.layout
+    displacement: format.displacement
+    elementwise: draining.kind =/= MemoryIssueKind.Contiguous
+    seed: format.seed
+    seed_lane: format.data.begin[0..index_width(dlen div 8)]
 
-  reg segmented(Bool)
   def safe = !chain.older_accesses.as_vec(Bool)[result.bits.address]
   result |> gate_flow(safe) |> write
-  chain.write_owner <== owner
-  reg unread_v0(~init: PredicateSet(0))
-  reg unwritten_vd(~init: RowSet(0))
+  chain.read_owner <== access.owner
+  chain.write_owner <== draining.owner
+  chain.owner <== entries[latest].owner
+  reg predicates(~init: literal(Vec(2, PredicateSet), 0))
+  reg unwritten(~init: literal(Vec(2, RowSet), 0))
+  def values(data_rows, predicate_rows) = memory_command_rows(xlen, vlen, operand_geometry(xlen, vlen, slots, prepare.bits))
   def row = operands.prepared
-  def skipped = row_event(row.fire() & !row.bits.enabled.any(), row.bits.row)
-  def written = row_event(write.fire(), write.bits.address)
-  chain.unread_v0 <== unread_v0
-  inst segments(VectorSegmentClaims(xlen, vlen))
-  segments.install.valid <== prepare.fire()
-  segments.install.bits <== command
-  visit |> segments.visit
-  segments.skip.valid <== row.fire() & !row.bits.enabled.any()
-  segments.skip.bits <== row.bits.row
-  def outstanding = mux(segmented, segments.claims, unwritten_vd)
-  chain.unwritten_vd <== mux(active, outstanding, RowSet(0))
-  when (prepare.fire()):
-    streaming <== unordered_slice
-    eew <== command.layout.eew
-    elementwise <== prepare.bits.kind =/= MemoryIssueKind.Contiguous
-    owner <== prepare.bits.owner
-    checked <== singleton
-    segmented <== command.layout.nf.any()
-    displacement <== command.displacement
-  unread_v0 <== mux(prepare.fire(), predicate_rows, unread_v0 & !operands.predicate_done)
-  // The checker owns the oldest macro exclusively. Hold the union of its
-  // admitted destinations until drain; adjacent slices can write the same row.
-  when (prepare.fire()): unwritten_vd <== data_rows ||| mux(active & reuse, unwritten_vd, RowSet(0))
-  elsewhen (gather_row.valid): unwritten_vd <== unwritten_vd ||| row_event(Bool(#true), gather_row.bits)
-  elsewhen (!streaming): unwritten_vd <== unwritten_vd & !(skipped ||| written)
-  busy <== active
+  def skip = row.fire() & !row.bits.enabled.any()
+  def claims = for List (i in 0..2):
+    def id = Bits(1)(i)
+    def install = push & (slot === id)
+    def reading = operand_head === id
+    def writing = drain === id
+    inst segments(VectorSegmentClaims(xlen, vlen))
+    segments.install.valid <== install
+    segments.install.bits <== operand_geometry(xlen, vlen, slots, prepare.bits)
+    segments.visit.valid <== visit.valid & writing
+    segments.visit.bits <== visit.bits
+    segments.skip.valid <== skip & reading
+    segments.skip.bits <== row.bits.row
+    when install:
+      entries[i] <== prepare.bits
+      unwritten[i] <== data_rows ||| mux(reuse, unwritten[i], RowSet(0))
+    elsewhen (reading & gather_row.valid):
+      unwritten[i] <== unwritten[i] ||| row_event(Bool(#true), gather_row.bits)
+    elsewhen (entries[i].kind =/= MemoryIssueKind.ResolvedStream):
+      unwritten[i] <== unwritten[i] & !(row_event(reading & skip, row.bits.row) ||| row_event(writing & write.fire(), write.bits.address))
+    when install: predicates[i] <== predicate_rows
+    elsewhen reading: predicates[i] <== predicates[i] & !operands.predicate_done
+    mux(live[i], mux(entries[i].layout.nf.any(), segments.claims, unwritten[i]), RowSet(0))
+  def destinations = vec(claims)
+  chain.unwritten_vd <== destinations[latest]
+  chain.unread_v0 <== mux(live[latest], predicates[latest], PredicateSet(0))
+  chain.draining_vd <== mux(drain =/= latest, destinations[drain], RowSet(0))
+  chain.draining_v0 <== mux(live[drain] & (drain =/= latest), predicates[drain], PredicateSet(0))
 
-  def stream_idle = streaming & closed & !returns_pending & !gather_live
-  finished.valid <== !streaming & closed & !returns_pending & !outstanding.any()
+  def complete = live[drain] & issued[drain] & !returns_pending
+  finished.valid <== complete & !stream & !destinations[drain].any()
   finished.bits <== MemoryEvent(slots):
-    owner: owner
+    owner: draining.owner
     checked: checked
-  when (prepare.fire() ||| finished.fire() ||| stream_idle): active <== prepare.fire()
-  when (prepare.fire() ||| finished.fire() ||| stream_idle): closed <== Bool(#false)
-  elsewhen (rows.fire() & rows.bits.payload.last): closed <== Bool(#true)
+  def pop = finished.fire() ||| (complete & stream & !gather_live & !(push & reuse))
+  when (push & !reuse): enqueue <== !enqueue
+  when (advance ||| (pop & checked)): operand_head <== !operand_head
+  when pop: drain <== !drain
+  for (i in 0..2):
+    def install = push & (slot === Bits(1)(i))
+    def release = pop & (drain === Bits(1)(i))
+    when (install ||| release):
+      live[i] <== install
+      issued[i] <== Bool(#false)
+    elsewhen (last & (operand_head === Bits(1)(i))): issued[i] <== Bool(#true)
 
 export VectorLoadSequencer

@@ -143,6 +143,8 @@ sync_circuit SuperscalarMemoryAdapter(translation :: SuperscalarTranslationSpeci
   def cache_outcome = cache_lookup_outcome(decision, physical_pipeline.response.valid, physical_pipeline.response.bits.outcome)
   pipeline.response.valid <== mem_request.valid
   pipeline.response.bits <== SuperscalarLookupResult(xlen):
+    cached_physical: speculative_ok
+    physical_address: resolved.address[0..xlen.width]
     guest: resolved.guest.updated(~page_fault: resolved.guest.page_fault & (cache_outcome === CachePipelineOutcome.PageFault))
     outcome: cache_outcome
     data: physical_pipeline.response.bits.data

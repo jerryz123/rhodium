@@ -5,6 +5,7 @@
 import:
   lib("cores/common/mmu/vector.rhdl") open
   "common/paths.rhm" open
+  "mem/instruction-queue.rhdl".RowFootprint
   "../service.rhdl".VectorExecutionService
   "frontend/admission.rhdl".DistributedVectorAdmission
   "../../cosim-source.rhm".describe_cosim_signals
@@ -54,7 +55,7 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
   output active: Bool
   def InstructionId = Bits(index_width(slots))
   interface row_memory(VectorRowMemory(vector_dlen(vlen)), ~role: requester)
-  interface native_outstanding_store(Valid(Bool), ~role: producer)
+  output native_can_follow: Bool
   interface element_translation(VectorElementTranslation(), ~role: requester)
   input window_pages: VectorWindowPages
   input memory_drained: Bool
@@ -122,15 +123,15 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
   paths.memory_busy <== rows.unavailable
   claims.allocation_empty <== no_work
   def allocating :: VectorCheckedDescriptor(xlen) = tagged.bits.checked
-  paths.native_access <== row_memory_eligible
   claims.allocation_native <== no_work ||| !allocating.descriptor.control.memory ||| row_memory_eligible
   def Array(ordered, operands) = tagged |> atomic_fork(2)
-  ordered |> paths.ingress
-  /* Direct preparation and later address launch resolve the same immutable descriptor. */
+  ordered |> filter_flow(_entry => !row_memory_eligible) |> paths.ingress
+  /* Fork one accepted direct descriptor into its VRF work and physical reservation. */
   fun direct(entry :: VectorDispatchEntry(xlen, slots)) :~ MemoryIssue(xlen, vlen, slots):
     direct_memory_issue(xlen, vlen, slots, entry)
   def grants = vec([checker.busy, !checker.busy]).into(MaybeOneHot(2))
-  def direct_prepare = operands |> filter_flow(_entry => row_memory_eligible) |> map_flow(entry => direct(entry))
+  def Array(datapath, addresses) = operands |> filter_flow(_entry => row_memory_eligible) |> atomic_fork(2)
+  def direct_prepare = datapath |> map_flow(entry => direct(entry))
   grant_merge(grants, Array(checker.prepare, direct_prepare)) |> rows.prepare
   checker.checked_element |> rows.checked_element
   rows.stream_live <== checker.stream_live
@@ -144,30 +145,28 @@ sync_circuit DistributedVectorBackend(xlen :: XLen, vlen :: VectorLength, Fault 
   checked_rows |> checker.indices
   rows.store_reads <=> claims.store_reads
   claims.head_owner <== vec(for List (i in DispatchPaths): if i == ExecutePath | row_alu.chain.owner | paths.heads[i].bits.owner)
-  /* Snapshot direct translation only when the ordered address offer is accepted. */
-  fun direct_launch(entry :: VectorDispatchEntry(xlen, slots)) :~ MemoryLaunch(xlen, vlen, slots):
+  /* Both queues snapshot the certified physical envelope at ordered dispatch,
+     before either cursor or its peer can issue a physical request. */
+  fun physical_command(entry :: VectorDispatchEntry(xlen, slots)) :~ MemoryLaunch(xlen, vlen, slots):
     def d = entry.checked.descriptor
     MemoryLaunch(xlen, vlen, slots):
       issue: direct(entry)
       pages: mux(d.precertified, d.certificate.pages(), window_pages)
       service: VectorMemoryService.Cached
-
-  def exact_heads = checker.launch |> demux_flow(2, launch => launch.issue.command.store)
-  def ordinary = for Array (i in MemoryPaths):
-    def head = paths.heads[i]
-    def Array(ordinary, native) = head |> demux_flow(2, _entry => claims.head_native[i])
-    // A follower must still pass the VLSU physical-span check.
-    def follow_peer = rows.outstanding_store.valid & (rows.outstanding_store.bits === Bool(i == LoadPath))
-    def allowed = claims.head_allowed[i] & (memory_drained ||| follow_peer)
-    def native_launch = native |> gate_flow(allowed) |> map_flow(entry => direct_launch(entry))
-    grant_merge(grants, Array(exact_heads[i], native_launch)) |> rows.launch[i]
-    ordinary |> gate_flow(claims.head_allowed[i])
+  def admitted = addresses |> map_flow(entry => physical_command(entry))
+  def commands = grant_merge(grants, Array(checker.launch, admitted)) |> demux_flow(2, entry => entry.issue.command.store)
+  for (i in MemoryPaths): commands[i] |> rows.launch[i]
+  def ordinary = for Array (i in MemoryPaths): paths.heads[i] |> gate_flow(claims.head_allowed[i])
   claims.head_issued <== vec(for List (i in DispatchPaths): if i == ExecutePath | Bool(#false) | paths.heads[i].fire())
   rows.stream_owner <== checker.owner
 
   /* Each row engine owns its reads and returns. The register view arbitrates physical ports. */
 
-  rows.outstanding_store |> native_outstanding_store
+  interface scalar_probe(Valid(RowFootprint()), ~role: consumer)
+  scalar_probe |> rows.scalar_probe
+  output scalar_conflict: Bool
+  scalar_conflict <== rows.scalar_conflict ||| claims.checked_live ||| (scalar_probe.bits.store & admission.loads_pending) ||| admission.stores_pending
+  native_can_follow <== !claims.checked_live & rows.physical_pending
   rows.chain <=> claims.mem_chain
   row_alu.chain <=> claims.alu_chain
   // WB can count the tail grant only when no other VRF client can take a

@@ -69,6 +69,8 @@ sync_circuit SuperscalarVectorMemoryFixture(xlen :: XLen, slots :: Pow2Int):
   lookup_store <== dut.pipeline.request.bits.memory.data
   dut.pipeline.response.valid <== lookup_valid
   dut.pipeline.response.bits <== SuperscalarLookupResult(xlen):
+    cached_physical: Bool(#false)
+    physical_address: Bits(xlen.width)(0)
     outcome: lookup_outcome
     data: lookup_data
     guest: literal(RiscvGuestException(), 0)

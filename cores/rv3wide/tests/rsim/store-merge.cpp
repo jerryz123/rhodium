@@ -37,7 +37,7 @@ void exercise(unsigned displacement, unsigned first, unsigned limit, unsigned ee
     memory_in.presponse.pvalid=t>=60 && t%7==0 && acks<accepted;
     memory_in.presponse.pbits.pstore=1;
     eval(); CHECK(store_reads_out.punread_uvs3==claims && !store_reads_out.punread_uv0);
-    CHECK(!launch_0_out.pready && !mask_1_out.psample.pvalid);
+    CHECK(probe_conflict && launch_0_out.pready && !mask_1_out.psample.pvalid);
     if (returning) claims &= ~(UINT64_C(1)<<(2*vs3+read_row));
     if (t==10 && first_row==0) {
       // A younger writer can now overwrite the captured source. Row 1 is
@@ -72,7 +72,7 @@ void exercise(unsigned displacement, unsigned first, unsigned limit, unsigned ee
     if (finished_out.pvalid) { CHECK(acks==beats && finished_out.pbits.powner==3); ++done; }
     tick_model();
   }
-  eval(); CHECK(launch_0_out.pready);
+  eval(); CHECK(!probe_conflict && launch_0_out.pready);
   CHECK(stalls && tails==1 && done==1 && !claims && reads==final_row-first_row+1);
   for (unsigned i=0;i<ram.size();++i)
     CHECK(ram[i]==(beat0+i>=begin && beat0+i<end ? original(beat0+i-base) : 0xc5));
@@ -120,7 +120,7 @@ static void segmented_store(unsigned fields,unsigned eew,unsigned lmul=0,Boundar
     std::uint64_t claims=0;
     for(unsigned i=captures;i<beats*visits;++i) claims |= UINT64_C(1)<<address(i);
     CHECK(store_reads_out.punread_uvs3==claims);
-    CHECK(!launch_0_out.pready);
+    CHECK(probe_conflict && launch_0_out.pready);
     if(t==12) CHECK(captures==1 && sent==0);
     if(t==35 && fields==2) CHECK(captures==4 && sent==0);
     if(first_boundary) {

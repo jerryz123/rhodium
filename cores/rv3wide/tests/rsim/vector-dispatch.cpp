@@ -9,7 +9,6 @@ int main() {
     tick_model();
     reset = 0;
     native_execute_in.pready=1;
-    native_access=1;
     unsigned sequence = 0;
     auto offer = [&](unsigned path) {
       ingress_in.pvalid = 1;
@@ -51,6 +50,10 @@ int main() {
       native_execute_in.pready=1; memory_busy[1]=0;
       ingress_in.pvalid=0;
       memory_busy[0]=0;
+      reclaimed_in.pvalid=1;
+      reclaimed_in.pbits=first%4; tick_model();
+      reclaimed_in.pbits=(first+1)%4; tick_model();
+      reclaimed_in.pvalid=0;
       for (unsigned path=0;path<3;++path) { offer(path); CHECK(ingress_out.pready); }
       ingress_in.pvalid=0;
       heads_0_in.pready = heads_1_in.pready = 0;
@@ -64,7 +67,6 @@ int main() {
 
     // The precise checker did not install a VLSU cursor. Its kind stays reserved
     // until the matching macro is reclaimed, even with both native entries idle.
-    native_access=0;
     const unsigned owner=sequence%4;
     push(0);
     heads_0_in.pready=1;

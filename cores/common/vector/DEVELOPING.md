@@ -212,8 +212,8 @@ to select its captured PPNs, which need not be adjacent. The fault checker's
 full VPN comparison still determines whether a checked element can reuse a proof.
 
 The VLSU has sixteen load metadata entries and buffers five returned load beats.
-Store acknowledgements use a separate five-entry FIFO of element-boundary bits;
-the resident store cursor owns them until drain. Both cached and uncached replies
+Store acknowledgements use a separate five-entry FIFO of owners and element-boundary
+bits so an ACK still belongs to its instruction after the store cursor advances. Both cached and uncached replies
 echo the request kind in order. Check each cursor's capacity before arbitrating;
 neither a store ACK nor a masked skip needs a load slot. Normally a load reserves
 return space at request acceptance so a blocked VRF cannot strand a later store ACK. Only an
@@ -224,9 +224,17 @@ A displaced prefix can enter the merger without its suffix; a completed row
 needs only the fair VRF grant, never a later cache reply. Keep every accepted
 load in the [pending count](distributed/mem/load-return.rhdl) until the merger
 consumes its beat, including replies still held by L1D.
-Install its layout on VLSeq preparation, not on address issue: those handshakes
-can stall independently. The formatter advances empty fields without a write;
-VLSeq consumes every enabled output fragment on the corresponding VRF grant.
+At ordered dispatch the VLSU reserves a slot in its two-entry VLIQ or VSIQ
+atomically with the corresponding VRF work. Each physical queue holds the
+translated byte envelope until all accepted requests have returned or ACKed.
+The address head can install the next instruction once the cursor issues its
+tail. The drain head releases the footprint independently of VRF writeback.
+Allocation records older overlapping opposite-kind entries, plus older
+overlapping stores for a store; disjoint addresses and load/load pairs
+need no dependency. Compare both physical pages, not the virtual address.
+VLSeq retains destination geometry and claims through the final granted write;
+VSSeq retains operand geometry through capture. Neither owns a physical
+instruction queue. Checked streams retain exclusive ownership.
 On the store side, the VLSU owns both ingress slots. For single-field stores
 VSSeq advances on a granted VS3 read or an accepted mask skip. The one-cycle
 return stage keeps the row, span, enables and tail for that decision, not a

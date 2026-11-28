@@ -3,6 +3,7 @@
 
 import:
   lib("cores/common/mmu/vector.rhdl") open
+  lib("cores/common/vector/distributed/mem/instruction-queue.rhdl").RowFootprint
   lib("cores/common/vector/bundles.rhdl") open
   lib("cores/common/vector/register-file.rhdl").VectorRegisterWrite
   lib("cores/common/vector/distributed/common/memory-route.rhdl") open
@@ -34,6 +35,8 @@ sync_circuit IndexGatherFixture(xlen :: XLen):
   output(authorized, finished, window_released): Bool
   inst scan(VectorFaultCheck(xlen, vlen, 4))
   inst rows(VectorRowEngine(xlen, vlen, 4))
+  rows.scalar_probe.valid <== Bool(#false)
+  rows.scalar_probe.bits <== dont_care(rows.scalar_probe.bits.type)
   rows.oldest_owner <== scan.owner
   inst special(VectorSpecialSequencer(xlen, vlen, 4))
   start |> scan.start
@@ -128,9 +131,22 @@ sync_circuit RowMemoryFixture(xlen :: XLen, vlen):
   def dlen = vlen div 2
   def Owner = Bits(2)
   inst rows(VectorRowEngine(xlen, vlen, 4))
+  input probe_kind: Bits(1)
+  output probe_conflict: Bool
+  probe_conflict <== rows.scalar_conflict
   input oldest_owner: Owner
   rows.oldest_owner <== oldest_owner
   interface launch[2](Decoupled(MemoryFixtureLaunch(xlen)), ~role: consumer)
+  rows.scalar_probe.valid <== Bool(#true)
+  def probes = for List (i in 0..2):
+    def issue = fixture_issue(xlen, vlen, launch[i].bits.issue)
+    RowFootprint():
+      store: Bool(i == 1)
+      pages: launch[i].bits.pages
+      first: issue.command.first
+      last: issue.command.last
+      crosses: issue.command.crosses
+  rows.scalar_probe.bits <== vec(probes)[probe_kind]
   interface prepare(Decoupled(MemoryFixtureIssue(xlen)), ~role: consumer)
   prepare |> trace_event("fixture/prepare") |> map_flow(i => fixture_issue(xlen, vlen, i)) |> rows.prepare
   reg trace_instructions(Vec(4, VectorTraceInstruction(xlen)))
@@ -153,7 +169,6 @@ sync_circuit RowMemoryFixture(xlen :: XLen, vlen):
   interface store_reads(VectorStoreReadChain(Owner), ~role: engine)
   interface chain(VectorLoadChain(Owner), ~role: engine)
   output busy: Bool
-  interface outstanding_store(Valid(Bool), ~role: producer)
   interface memory(VectorRowMemory(dlen), ~role: requester)
   interface write(Decoupled(VectorRegisterWrite(dlen, vlen)), ~role: producer)
   interface read(Decoupled(RowAddress), ~role: producer)
@@ -172,7 +187,6 @@ sync_circuit RowMemoryFixture(xlen :: XLen, vlen):
   indices |> rows.indices
   rows.store_reads <=> store_reads
   rows.chain <=> chain
-  rows.outstanding_store |> outstanding_store
   rows.memory <=> memory
   rows.write |> write
   rows.read |> read
@@ -189,6 +203,8 @@ sync_circuit NativeIndexMemoryFixture(xlen :: XLen, vlen):
   def dlen = vlen div 2
   def Owner = Bits(2)
   inst rows(VectorRowEngine(xlen, vlen, 4))
+  rows.scalar_probe.valid <== Bool(#false)
+  rows.scalar_probe.bits <== dont_care(rows.scalar_probe.bits.type)
   rows.oldest_owner <== Owner(0)
   inst special(VectorSpecialSequencer(xlen, vlen, 4))
   special.reduction.update.valid <== Bool(#false)

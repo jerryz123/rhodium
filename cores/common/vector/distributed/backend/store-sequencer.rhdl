@@ -30,7 +30,12 @@ sync_circuit VectorStoreSequencer(xlen :: XLen, vlen :: VectorLength, slots :: P
   interface mask(VectorPredicateTap(dlen), ~role: reader)
   interface scatter(ScatterOperand(dlen), ~role: sequencer)
   input scatter_live: Bool
-  def singleton = resolved_issue(prepare.bits.kind)
+  inst waiting(Queue(MemoryOperandWork(xlen, vlen, slots), 1, ~flow: #true))
+  prepare |> map_flow(entry => operand_work(xlen, vlen, slots, entry)) |> waiting.ingress
+  def work = waiting.egress
+  def singleton = resolved_issue(work.bits.kind)
+  store_reads.waiting <== waiting.count.any()
+  store_reads.waiting_owner <== work.bits.owner
   input scatter_owner: Owner
   output busy: Bool
   inst capture(VectorMemoryRowSequencer(xlen, vlen, ~store: #true))
@@ -38,10 +43,10 @@ sync_circuit VectorStoreSequencer(xlen :: XLen, vlen :: VectorLength, slots :: P
   reg capture_owner(Owner)
   reg unread_vs3(RowSet)
   reg unread_v0(PredicateSet)
-  def values(data_rows, predicate_rows) = memory_command_rows(xlen, vlen, prepare.bits.command)
+  def values(data_rows, predicate_rows) = memory_command_rows(xlen, vlen, operand_geometry(xlen, vlen, slots, work.bits))
   reg segmented(Bool)
   inst segments(VectorSegmentClaims(xlen, vlen))
-  prepare |> gate_flow(!capturing) |> map_flow(entry => entry.command) |> to_valid() |> capture.launch
+  work |> gate_flow(!capturing) |> map_flow(entry => operand_geometry(xlen, vlen, slots, entry)) |> to_valid() |> capture.launch
   // Scatter addresses are irregular, but VS3 lanes advance in order. Keep
   // the last demanded row across page changes, never across instructions.
   reg resident(~init: Bool(#false))
@@ -72,15 +77,15 @@ sync_circuit VectorStoreSequencer(xlen :: XLen, vlen :: VectorLength, slots :: P
      owner: capture_owner
      payload: r
   ) |> rows
-  segments.install.valid <== prepare.fire()
-  segments.install.bits <== prepare.bits.command
+  segments.install.valid <== work.fire()
+  segments.install.bits <== operand_geometry(xlen, vlen, slots, work.bits)
   capture.visit |> segments.visit
   segments.skip.valid <== capture.prepared.fire() & !capture.prepared.bits.enabled.any()
   segments.skip.bits <== capture.prepared.bits.row
-  when (prepare.fire()):
-    capture_owner <== prepare.bits.owner
+  when (work.fire()):
+    capture_owner <== work.bits.owner
     capturing <== Bool(#true)
-    segmented <== prepare.bits.command.layout.nf.any()
+    segmented <== operand_geometry(xlen, vlen, slots, work.bits).layout.nf.any()
     unread_vs3 <== data_rows
     unread_v0 <== predicate_rows
   elsewhen capturing:
@@ -110,6 +115,6 @@ sync_circuit VectorStoreSequencer(xlen :: XLen, vlen :: VectorLength, slots :: P
   )
   describe_interface_contract(captured, scatter.operand, "scatter-row", ~trace_model: interface_trace_window())
   capture.mask <=> mask
-  busy <== capturing
+  busy <== capturing ||| waiting.count.any()
 
 export VectorStoreSequencer

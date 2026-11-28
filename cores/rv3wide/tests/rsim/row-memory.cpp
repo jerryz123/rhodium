@@ -414,7 +414,8 @@ int main() {
     block_returns=true; addresses.clear(); reads_alu.clear(); load_write_cycles.clear();
     send(load(12),0x3ff4,false); send(op(0,12,0,3,24));
     while (pending.size()!=2) step();
-    block_returns=false; while (load_write_cycles.empty()) step(); block_returns=true;
+    const auto prior_replies=load_return_cycles.size();
+    block_returns=false; while (load_return_cycles.size()<prior_replies+2) step(); block_returns=true;
     for (unsigned i=0;i<12;++i) step();
     CHECK((addresses==std::vector<Word>{0x60ff0,0x90000,0x90010}));
     CHECK(load_write_cycles.size()==1 && reads_alu.size()==1 && reads_alu[0].first>load_write_cycles[0]);
@@ -1311,9 +1312,8 @@ int main() {
     drain(); watch_writer=false;
     CHECK(store_captures.size()==4 && (addresses==std::vector<Word>{out,out+16,out+32,out+48}));
     for (unsigned r=0;r<4;++r) CHECK(stored.at(out+16*r)==stored.at(src+16*r));
-    // One load may wait in WB's dispatch credit behind the occupied VLIQ.
-    // VSSeq and VXSeq can both start; the dependent execute waits on the
-    // returned rows while the independently captured store waits for L1D.
+    // Both load descriptors fit before either returns. The occupied owner
+    // ring leaves one WB credit for a dependent store; a sixth descriptor stalls.
     state(0,0,0,16); addresses.clear(); writes.clear(); reads_alu.clear();
     const auto before_run=finishes;
     track_row_drain=block_returns=true;
@@ -1325,11 +1325,11 @@ int main() {
       for (unsigned i=0;i<4;++i) { eval(); CHECK(!request_ready); step(); }
       request_valid=0;
     };
-    send(load(12),src); blocked(store(12)); blocked(op(0,8,0,3,10));
-    CHECK((addresses==std::vector<Word>{dst,out}) && writes.empty() && reads_alu.empty());
+    send(load(12),src); send(store(12),out+16); blocked(op(0,8,0,3,10));
+    CHECK((addresses==std::vector<Word>{dst,out,src}) && writes.empty() && reads_alu.empty());
     block_returns=false; drain(); track_row_drain=false;
-    CHECK(finishes==before_run+4 && stored.at(out)==stored.at(src));
-    CHECK((addresses==std::vector<Word>{dst,out,src}));
+    CHECK(finishes==before_run+5 && stored.at(out)==stored.at(src) && stored.at(out+16)==stored.at(src));
+    CHECK((addresses==std::vector<Word>{dst,out,src,out+16}));
     send(store(24),out); drain(); CHECK(stored.at(out)==stored.at(dst));
 
     // VSSeq has already captured the bytes, but VSIQ still owns the ACK.
@@ -1341,8 +1341,9 @@ int main() {
     state(0,0,0,32); send(store(16) & ~(1u<<25),out);
     while (pending.empty()) step();
     state(0,0,0,16); send(load(24),out);
-    send(store(8),out+0x80); blocked(store(8));
-    CHECK((addresses==std::vector<Word>{out}) && (masks==std::vector<unsigned>{0x0ff0}) && writes.empty());
+    send(store(8),out+0x80);
+    while (addresses.size()<2) step();
+    CHECK((addresses==std::vector<Word>{out,out+0x80}) && (masks==std::vector<unsigned>{0x0ff0,0xffff}) && writes.empty());
     block_returns=false; drain(); track_row_drain=false;
     CHECK(std::count(addresses.begin(),addresses.end(),out)==2);
     CHECK(std::count(addresses.begin(),addresses.end(),out+0x80)==1 && addresses.size()==3);

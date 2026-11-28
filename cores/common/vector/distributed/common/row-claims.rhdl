@@ -12,8 +12,8 @@ import:
   lib("riscv/isa/vector.rhm").VectorLength
   lib("riscv/isa/xlen.rhm").XLen
 
-/* VLSeq retains the unread predicate and unwritten destination of one load,
-   including rows whose cache replies are buffered behind the VRF port. */
+/* The operand cursor owns unread predicates and its destination claims.
+   An older draining load keeps independent destination claims through writeback. */
 interface VectorLoadChain(Owner :: DataType):
   role engine
   role scoreboard
@@ -23,6 +23,9 @@ interface VectorLoadChain(Owner :: DataType):
     unread_v0: PredicateSet
     unwritten_vd: RowSet
     write_owner: Owner
+    draining_vd: RowSet
+    draining_v0: PredicateSet
+    read_owner: Owner
   scoreboard -> engine:
     older_writes: RowSet
     older_accesses: RowSet
@@ -37,6 +40,8 @@ interface VectorStoreReadChain(Owner :: DataType):
     owner: Owner
     unread_vs3: RowSet
     unread_v0: PredicateSet
+    waiting: Bool
+    waiting_owner: Owner
   scoreboard -> engine:
     older_writes: RowSet
 
