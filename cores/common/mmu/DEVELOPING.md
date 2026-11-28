@@ -80,7 +80,10 @@ Preserve these invariants when extending the components:
   composed guest entries match individual 4 KiB pages. A malformed address
   must miss even if all retained bits match. Keep the full request for the walker.
 - In both entry formats, bound only the final physical PPN using all mapped
-  regions, not just cacheable RAM. Never derive the guest PPN from it.
+  regions, not just cacheable RAM. Never derive the guest PPN from it. Before
+  storing GPA bits 55:12 on a successful guest fill, check the full GPA against
+  the G-stage mode (41 bits for Sv39x4, 56 for Bare). Failed walks retain their
+  original full-width GPA for fault reporting; they do not allocate.
   Record overflow from the normalized page base at fill; the initiating
   access's superpage offset must not poison other offsets. Recheck the actual
   offset on demand and probe; preserve permission-fault priority. Exercise

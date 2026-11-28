@@ -14,12 +14,12 @@ int main() {
     lookup.pvirtual_uaddress = va + 0x10;
     probe = lookup;
     probe.pvirtual_uaddress = va + 0xa8;
-    auto install = [&](uint64_t address, unsigned size) {
+    auto install = [&](uint64_t address, unsigned size, uint64_t guest_page) {
       fill_in.pbits.prequest = lookup;
       auto &r = fill_in.pbits.presult;
       const auto offset = lookup.pvirtual_uaddress & 0xfff;
       r.pphysical_uaddress = address | offset;
-      r.pguest_uphysical_uaddress = lookup.pcontext.pvs_umode ? (gpa | offset) : lookup.pvirtual_uaddress;
+      r.pguest_uphysical_uaddress = guest_page | offset;
       r.ppage_usize = size;
       auto &vs = r.pvs_uleaf;
       vs.pvalid = vs.pread = vs.pwrite = vs.paccessed = vs.pdirty = 1;
@@ -28,11 +28,11 @@ int main() {
       r.pg_uleaf.pwrite = 0;
       fill_in.pvalid = 1; tick_model(); fill_in.pvalid = 0; eval();
     };
-    install(pa, 0);
+    install(pa, 0, gpa);
     CHECK(hit && probe_hit && !translation.pfault && !probe_fault);
     CHECK(translation.pphysical_uaddress == pa + 0x10 && probe_physical_address == pa + 0xa8);
     CHECK(translation.pguest_uphysical_uaddress == gpa + 0x10);
-    install((UINT64_C(1) << 55) | pa, 0);
+    install((UINT64_C(1) << 55) | pa, 0, gpa);
     CHECK(hit && probe_hit && translation.pfault == access_fault && probe_translation.pfault == access_fault);
     CHECK(probe_demand_fault && prefetch_probe.pfault);
     auto provenance = [&](const auto &mapping, uint64_t offset) {
@@ -55,7 +55,7 @@ int main() {
     lookup.pvirtual_uaddress = 0x40100000;
     probe = lookup;
     probe.pvirtual_uaddress--;
-    install(0x100000, 3);
+    install(0x100000, 3, 0x100000);
     CHECK(hit && translation.pfault == access_fault);
     CHECK(probe_hit && !probe_fault && !probe_translation.pfault && probe_physical_address == 0xfffff);
     std::swap(lookup.pvirtual_uaddress, probe.pvirtual_uaddress);
@@ -81,7 +81,7 @@ int main() {
       lookup.pcontext.pg_umode = guest;
       lookup.pvirtual_uaddress = va;
       probe = lookup;
-      install(pa, 0);
+      install(pa, 0, guest ? gpa : pa);
       check_ports(va + 0x10, invalid_va + 0xa8, true, false);
       CHECK(translation.pphysical_uaddress == pa + 0x10);
       check_ports(invalid_va + 0x10, va + 0xa8, false, true);
@@ -96,17 +96,42 @@ int main() {
     lookup.pcontext.pvs_umode = 0;
     lookup.pvirtual_uaddress = low;
     probe = lookup;
-    install(pa, 0);
+    install(pa, 0, low);
     lookup.pvirtual_uaddress = high;
-    install(high_pa, 0);
+    install(high_pa, 0, high);
     check_ports(low + 0x10, high + 0xa8, true, true);
     CHECK(translation.pphysical_uaddress == pa + 0x10 && probe_physical_address == high_pa + 0xa8);
     check_ports(high + 0x10, low + 0xa8, true, true);
     CHECK(translation.pphysical_uaddress == high_pa + 0x10 && probe_physical_address == pa + 0xa8);
     check_ports(low | outside, high, false, true);
     // Even a synthetic successful fill for the invalid alias cannot overwrite low.
-    install(high_pa, 0);
+    install(high_pa, 0, low | outside);
     check_ports(low, high | outside, true, false);
     CHECK(translation.pphysical_uaddress == pa);
+
+    // Here the *input* VA is valid. Reject an overwide translated GPA even if
+    // the fill claims success and its compact tag matches a resident entry.
+    lookup.pcontext.pvs_umode = 1;
+    for (bool paged_g : {true, false}) {
+      invalidate_all = 1; tick_model(); invalidate_all = 0;
+      lookup.pcontext.pg_umode = paged_g;
+      lookup.pvirtual_uaddress = va;
+      probe = lookup;
+      const auto guest_page = gpa | (UINT64_C(1) << (paged_g ? 40 : 55));
+      const auto physical_page = paged_g ? pa : guest_page;
+      install(physical_page, 0, guest_page);
+      install(high_pa, 0, guest_page | (UINT64_C(1) << (paged_g ? 41 : 56)));
+      lookup.pvirtual_uaddress += 0x10;
+      probe.pvirtual_uaddress += 0xa8;
+      eval();
+      CHECK(hit && probe_raw_hit && probe_hit);
+      CHECK(translation.pguest_uphysical_uaddress == guest_page + 0x10);
+      CHECK(probe_translation.pguest_uphysical_uaddress == guest_page + 0xa8);
+      // G-Bare preserves the full GPA even on this fixture's narrow physical-map fault.
+      CHECK(translation.pfault == (paged_g ? 0 : access_fault));
+      CHECK(probe_translation.pfault == translation.pfault);
+      CHECK(translation.pfault_udetails.pguest_uphysical_uaddress == guest_page + 0x10);
+      CHECK(probe_translation.pfault_udetails.pguest_uphysical_uaddress == guest_page + 0xa8);
+    }
   });
 }

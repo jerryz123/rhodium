@@ -110,10 +110,13 @@ itself. With `~prechecked_va: #true`, the caller also supplies
 of that lookup's VA. This lets an arbiter check candidates before selecting
 one. It changes neither first-PTE timing nor nested address checks.
 
-Successful fills update a matching entry or replace cyclically. Faults never
-allocate. Whole-bank invalidation wins over a simultaneous fill, removes global
-entries, and resets replacement state. Demand lookup observes pre-edge state;
-callers order the invalidation against their pipeline. The separate nonfaulting
+Successful fills update a matching entry or replace cyclically. A guest fill
+must supply a GPA that fits the G-stage mode: 41 bits for Sv39x4, 56 for Bare.
+An out-of-range fill cannot replace an existing mapping. Faults never allocate
+and retain their original fault addresses. Whole-bank invalidation wins over a
+simultaneous fill, removes global entries, and resets replacement state.
+Demand lookup observes pre-edge state; callers order the invalidation against
+their pipeline. The separate nonfaulting
 probe ignores A/D but requires a common access class permitted by both stages.
 When both stages are Bare, bits 63:56 of the input must be zero. A hint outside
 the physical address range is dropped before it can reach the cache.

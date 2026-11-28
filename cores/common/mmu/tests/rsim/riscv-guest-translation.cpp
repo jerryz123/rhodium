@@ -177,10 +177,12 @@ int main() {
     finish(NONE, UINT64_C(0x1234), LOAD, UINT64_C(0x40001234),
            UINT64_C(0x40001234));
     virtualized = 1;
+    // A paged VS leaf with G Bare can set GPA bit 55. The warm access must
+    // recover it from the TLB with the new offset and no PTE request.
+    constexpr uint64_t guest_base = (UINT64_C(1) << 55) | UINT64_C(0x80000000);
     launch(UINT64_C(0x1234), LOAD);
-    reply(UINT64_C(0x1000), entry(UINT64_C(0x80000), VW));
-    finish(NONE, UINT64_C(0x1234), LOAD, UINT64_C(2147488308),
-           UINT64_C(2147488308));
+    reply(UINT64_C(0x1000), entry(guest_base >> 12, VW));
+    finish(NONE, 0x1234, LOAD, guest_base + 0x1234, guest_base + 0x1234);
     virtualized = 0;
     launch(UINT64_C(0x1235), LOAD);
     finish(NONE, UINT64_C(0x1235), LOAD, UINT64_C(0x40001235),
@@ -191,8 +193,8 @@ int main() {
            UINT64_C(0x40002234));
     virtualized = 1;
     launch(UINT64_C(0x1236), LOAD);
-    finish(NONE, UINT64_C(0x1236), LOAD, UINT64_C(2147488310),
-           UINT64_C(2147488310));
+    CHECK(probe_hit && !probe_fault);
+    finish(NONE, 0x1236, LOAD, guest_base + 0x1236, guest_base + 0x1236);
     launch(UINT64_C(0x2234), LOAD);
     reply(UINT64_C(0x1000), entry(UINT64_C(0x80000), VW));
     finish(NONE, UINT64_C(0x2234), LOAD, UINT64_C(2147492404),
@@ -207,6 +209,16 @@ int main() {
     launch(UINT64_C(0x1fed), STORE);
     finish(NONE, UINT64_C(0x1fed), STORE, UINT64_C(0x40001fed),
            UINT64_C(0x1fed));
+
+    // A second VS leaf produces the warm page's GPA with bit 41 set. The
+    // terminal G-stage check faults before any G PTE read for that GPA.
+    launch(0x40001234, LOAD);
+    reply(0x4000, entry(0x40000, GR));
+    reply(0x40001008, entry(UINT64_C(1) << 29, VW));
+    finish(GUEST, 0x40001234, LOAD, 0, (UINT64_C(1) << 41) | 0x1234);
+    launch(0x1235, LOAD);
+    CHECK(probe_hit && !probe_fault);
+    finish(NONE, 0x1235, LOAD, 0x40001235, 0x1235);
 
     launch(UINT64_C(0x2234), LOAD);
     nested();
@@ -501,9 +513,17 @@ int main() {
     launch(0x5679, LOAD);
     reply(0x4000, entry(0x40000, GR));
     finish(NONE, 0x5679, LOAD, 0x40005679, 0x5679);
-    constexpr uint64_t bad_gpa = (UINT64_C(1) << 41) | 0x5679;
-    launch(bad_gpa, LOAD);
-    finish(GUEST, bad_gpa, LOAD, 0, bad_gpa);
+    // Bit 41 exceeds Sv39x4; bit 63 also exceeds the resident GPA width.
+    // Neither may alias the warm translation or disappear from fault provenance.
+    for (unsigned bit : {41u, 63u}) {
+      const uint64_t bad_gpa = (UINT64_C(1) << bit) | 0x5679;
+      launch(bad_gpa, LOAD);
+      CHECK(!probe_hit);
+      finish(GUEST, bad_gpa, LOAD, 0, bad_gpa);
+    }
+    launch(0x567a, LOAD);
+    CHECK(probe_hit && !probe_fault);
+    finish(NONE, 0x567a, LOAD, 0x4000567a, 0x567a);
     vs_mode = 1;
 
     reset = 1;

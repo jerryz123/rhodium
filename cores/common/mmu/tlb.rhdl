@@ -21,7 +21,7 @@ fun tlb_tag_address_valid(request :: RiscvTlbLookup()) :~ Bool:
       request.virtualized & (request.context.g_mode === RiscvGMode.Sv39x4) & sv39x4_address_valid(request.virtual_address))
 
 /* Root-tagged host/guest mapping. The VPN covers VA[40:12] for Sv39x4;
-   the independent guest PPN remains intact for fault reporting. */
+   the independent guest PPN covers GPA[55:12], including G-Bare translations. */
 bundle RiscvTlbEntry(ppn_width :: Int.in(1, 44) = 44):
   valid: Bool
   virtualized: Bool
@@ -29,7 +29,7 @@ bundle RiscvTlbEntry(ppn_width :: Int.in(1, 44) = 44):
   vpn: Bits(29)
   ppn: Bits(ppn_width)
   outside_map: Bool
-  guest_ppn: Bits(52)
+  guest_ppn: Bits(44)
   context: RiscvGuestTranslationContext()
   vs_leaf: Sv39Pte()
   g_leaf: Sv39Pte()
@@ -144,7 +144,7 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8, ~host_root_epoch: h
   def g_fault = g_enabled & !sv39_permission_valid(g_leaf, lookup.access, Bool(#true), Bool(#false), Bool(#false), lookup.context.hs_mxr, lookup.execute_read)
   def bare = !vs_enabled & !g_enabled
   def translated = sv39_physical_address(lookup.virtual_address, selected.ppn.zext(44), selected.page_size)
-  def guest_address = if host_root_epoch | translated.zext(64) | mux(lookup.virtualized, selected.guest_ppn ++ lookup.virtual_address[0..12], translated.zext(64))
+  def guest_address = (if host_root_epoch | translated | mux(lookup.virtualized, selected.guest_ppn ++ lookup.virtual_address[0..12], translated)).zext(64)
   def details = RiscvGuestFault():
     guest_virtual_address: lookup.virtualized
     guest_physical_address: mux(vs_fault, Bits(64)(0), guest_address)
@@ -208,7 +208,7 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8, ~host_root_epoch: h
   def probe_g_demand_fault = probe_g & !sv39_permission_valid(probe_g_leaf, probe.access, Bool(#true), Bool(#false), Bool(#false), probe.context.hs_mxr, probe.execute_read)
   probe_demand_fault <== probe_hit & (probe_vs_demand_fault ||| probe_g_demand_fault ||| probe_outside)
   def probe_physical = mux(probe_bare, probe.virtual_address[0..56], probe_translated)
-  def probe_guest_address = if host_root_epoch | probe_physical.zext(64) | mux(probe.virtualized, probe_entry.guest_ppn ++ probe.virtual_address[0..12], probe_physical.zext(64))
+  def probe_guest_address = (if host_root_epoch | probe_physical | mux(probe.virtualized, probe_entry.guest_ppn ++ probe.virtual_address[0..12], probe_physical)).zext(64)
   def probe_fault_details = RiscvGuestFault():
     guest_virtual_address: probe.virtualized
     guest_physical_address: mux(probe_vs_demand_fault, Bits(64)(0), probe_guest_address)
@@ -251,6 +251,10 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8, ~host_root_epoch: h
   def base_ppn = sv39_base_ppn(fill.bits.result.physical_address[12..56], fill.bits.result.page_size)
   def ppn = base_ppn[0..ppn_width]
   def base_outside = if ppn_width == 44 | Bool(#false) | base_ppn[ppn_width..44].any()
+  def fill_gpa = fill.bits.result.guest_physical_address
+  def guest_address_valid = if host_root_epoch
+  | Bool(#true)
+  | !fill.bits.request.virtualized ||| mux(fill.bits.request.context.g_mode === RiscvGMode.Sv39x4, sv39x4_address_valid(fill_gpa), riscv_bare_address_fits(fill_gpa))
   def next_entry = if host_root_epoch
   | RiscvHostTlbEntry(ppn_width):
       valid: Bool(#true)
@@ -267,7 +271,7 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8, ~host_root_epoch: h
       vpn: fill.bits.request.virtual_address[12..41]
       ppn: ppn
       outside_map: base_outside
-      guest_ppn: fill.bits.result.guest_physical_address[12..64]
+      guest_ppn: fill_gpa[12..56]
       context: fill.bits.request.context
       vs_leaf: fill.bits.result.vs_leaf
       g_leaf: fill.bits.result.g_leaf
@@ -280,7 +284,7 @@ sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8, ~host_root_epoch: h
     | assert(!fill.bits.request.virtualized & (fill.bits.request.context.vs_mode === RiscvVSMode.Sv39), "host_tlb_fills_only_host_sv39")
     | #void
 
-    when (address_valid(fill.bits.request)):
+    when (address_valid(fill.bits.request) & guest_address_valid):
       entries <== entries.updated(fill_index, next_entry)
       replacement <== mux(fill_matches.any(), replacement, wrap_increment(replacement, entry_count))
 
