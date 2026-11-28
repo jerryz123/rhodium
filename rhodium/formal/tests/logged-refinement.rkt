@@ -19,6 +19,20 @@
   (prove-transaction renamed_logged_rob view verified-rob-transactions #:child-site "engine"))
 
 (module+ test
+  (require (only-in "stall-replay.rhm" sample_events))
+  (test-case "record and record_data report the old record independently of the current retirement"
+    (define pins (hash "reset" #f "grant_a" #f "grant_b" #f "issue_gen" #f
+                       "complete_a" #f "complete_gen_a" #f "result_a" 0
+                       "complete_b" #f "complete_gen_b" #f "result_b" 0
+                       "retire.valid" #t "retire.bits" #t "retire_result" 1
+                       "last_tag" #f "last_payload" 3))
+    (define (events recorded? ready?)
+      (for/hash ([(k v) (sample_events view (hash-set* pins "has_commit" recorded? "retire.ready" ready?))])
+        (values k v)))
+    (check-equal? (events #f #f) (hash))
+    (check-equal? (events #t #f) (hash "record" #f "record_data" 3))
+    (check-equal? (events #f #t) (hash "retired" #t "retired_value" 1))
+    (check-equal? (events #t #t) (hash "record" #f "record_data" 3 "retired" #t "retired_value" 1)))
   ;; The mutants are distinct RTL families. Apply the good candidate plan without its parent
   ;; seal: the runner must check the actual occurrence, forwarding and recorder state anew.
   (define plan (LoggedTwoTagROB logged_rob #:proof_plan #t))

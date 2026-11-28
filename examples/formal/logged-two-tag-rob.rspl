@@ -9,9 +9,9 @@ import lib("rhodium/formal/spec.rhm").Observed
 
 /* Sample a retirement on handshake, and the pre-edge record whenever it is valid. */
 fun recorder_events(input :: Function.of_arity(2), output :: Function.of_arity(2), w :: PosInt):
-  def recorded = output("has_commit", Bool)
-  def readback = {"record": Observed(output("last_tag", Bool), recorded),
-                  "record_data": Observed(output("last_payload", Bits(w)), recorded)}
+  def recorded = sample_pin(output, has_commit, Bool)
+  def readback = {"record": Observed(sample_pin(output, last_tag, Bool), recorded),
+                  "record_data": Observed(sample_pin(output, last_payload, Bits(w)), recorded)}
   retirement_events(input, output, w) ++ readback
 
 /* Logical bits may be tag A (false); event presence, not payload truth, signals capture. */
