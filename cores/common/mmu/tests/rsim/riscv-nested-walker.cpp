@@ -160,6 +160,58 @@ void finish_guest_under_stall(unsigned expected_fault, std::uint64_t va, unsigne
   CHECK(command_ready && !completed);
 }
 
+void check_nested_frame_reuse() {
+  // VPN[2:0] = {0x12, 0x157, 0xea}; each saved level addresses a different PTE slot.
+  constexpr auto va = UINT64_C(0x4aaeeaabc);
+  constexpr std::uint64_t slots[] = {0x2f090, 0x183ab8, 0x2b6750};
+  constexpr std::uint64_t next_tables[] = {0x183, 0x2b6};
+  const auto begin_walk = [&] {
+    defaults();
+    vs_mode = g_mode = 1;
+    vs_root = 0x2f;
+    launch(va, STORE);
+    address = ~va;
+    vs_root = g_root = 0xdead;
+  };
+  const auto descend = [&](unsigned tables) {
+    for (unsigned i = 0; i < tables; ++i) {
+      translate_g(slots[i], GR);
+      reply(0x100000 + slots[i], entry(next_tables[i], 1));
+    }
+  };
+
+  // Fail the implicit G read at each VS level. Report the PTE's GPA, not the
+  // original VA, the live root, or the G-stage table that rejected the read.
+  for (unsigned i = 0; i < 3; ++i) {
+    begin_walk();
+    descend(i);
+    reply(0x4000, 0);
+    finish_guest_under_stall(GUEST, va, STORE, 0, slots[i], slots[i], true);
+  }
+
+  struct Leaf {
+    unsigned tables;
+    std::uint64_t ppn, flags, expected_gpa;
+  };
+  constexpr Leaf leaves[] = {
+      {0, 0x80000, VW, 0xaaeeaabc}, // 1 GiB
+      {1, 0x88600, VW, 0x886eaabc}, // 2 MiB
+      {2, 0x88878, VW | (UINT64_C(1) << 63), 0x8887aabc}, // 64 KiB NAPOT
+      {2, 0x88875, VW, 0x88875abc}, // 4 KiB
+  };
+  for (const auto &leaf : leaves) {
+    begin_walk();
+    const int start_reads = reads;
+    descend(leaf.tables);
+    translate_g(slots[leaf.tables], GR);
+    reply(0x100000 + slots[leaf.tables], entry(leaf.ppn, leaf.flags));
+    translate_g(leaf.expected_gpa, GW);
+    finish_guest_under_stall(NONE, va, STORE, 0x100000 + leaf.expected_gpa,
+                             leaf.expected_gpa, leaf.expected_gpa);
+    CHECK(reads - start_reads == 4 * static_cast<int>(leaf.tables + 1) + 3);
+  }
+}
+
 void stall_host_fault(std::uint64_t va, std::uint8_t kind,
                       std::uint64_t waiting_va, std::uint8_t waiting_kind) {
   launch(va, kind);
@@ -393,6 +445,8 @@ int main() {
     if (((g_leaf >> 5) & 1) || vs_leaf != 0)
       fail(1, "G global bool must be ignored");
     finish(NONE, UINT64_C(1099511632436), LOAD, UINT64_C(0x222234));
+    check_nested_frame_reuse();
+    // A subsequent G-only walk must ignore the previously saved final VS page.
     for (unsigned high_bit : {41u, 63u}) {
       defaults();
       g_mode = 1;
@@ -412,22 +466,6 @@ int main() {
     launch(UINT64_C(0x1234), LOAD);
     constexpr auto implicit_gpa = UINT64_C(1) << 41;
     finish_guest_under_stall(GUEST, 0x1234, LOAD, 0, implicit_gpa, implicit_gpa, true);
-
-    defaults();
-    vs_mode = 1;
-    g_mode = 1;
-    reads = 0;
-    launch(UINT64_C(0x1234), STORE);
-    translate_g(UINT64_C(0x1000), GR);
-    reply(UINT64_C(0x101000), entry(2, 1));
-    translate_g(UINT64_C(0x2000), GR);
-    reply(UINT64_C(0x102000), entry(3, 1));
-    translate_g(UINT64_C(0x3008), GR);
-    reply(UINT64_C(0x103008), entry(5, VW));
-    translate_g(UINT64_C(0x5234), GW);
-    finish_guest_under_stall(NONE, 0x1234, STORE, 0x105234, 0x5234, 0x5234);
-    if (reads != 15)
-      fail(1, "nested walk bypassed a stage");
 
     defaults();
     vs_mode = 1;

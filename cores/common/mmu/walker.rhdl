@@ -69,7 +69,6 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false,
   reg phase(RiscvPageWalkPhase)
   reg operation(RiscvTlbLookup())
   accepted_lookup <== operation
-  reg nested_gpa(Bits(64))
   reg frame(RiscvPageWalkFrame())
   reg saved_vs(RiscvPageWalkFrame())
   reg vs_leaf(Sv39Pte())
@@ -89,11 +88,13 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false,
   def idle = state === RiscvPageWalkState.Idle
   walking.ready <== idle & !cancel
   completion.valid <== (state === RiscvPageWalkState.Complete) & !cancel
-  // The accepted lookup, nested GPA and phase all hold through the completion transfer.
+  // GuestPte uses the suspended VS table and level. GuestFinal reuses the same
+  // PPN field for the resolved VS page; both offsets come from the accepted VA.
   def virtual_stage = phase === RiscvPageWalkPhase.Virtual
   def implicit_access = phase === RiscvPageWalkPhase.GuestPte
   def nested_g_stage = operation.virtualized & !virtual_stage & (operation.context.vs_mode === RiscvVSMode.Sv39)
-  def walk_address = mux(nested_g_stage, nested_gpa, operation.virtual_address)
+  def guest_offset = mux(implicit_access, operation.virtual_address.sv39_vpn(saved_vs.level) ++ Bits(3)(0), operation.virtual_address[0..12])
+  def walk_address = mux(nested_g_stage, (saved_vs.table_ppn ++ guest_offset).zext(64), operation.virtual_address)
   // A host leaf no longer needs the table that supplied it. Reconstruct its
   // address from the held frame and lookup, never from the next memory response.
   def host_base_ppn = sv39_base_ppn(frame.table_ppn, result.page_size)
@@ -248,7 +249,6 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false,
     state <== RiscvPageWalkState.PrepareRead
   elsewhen (preparing_read & virtual_stage & operation.virtualized):
     saved_vs <== frame
-    nested_gpa <== pte_address
     frame <== root_frame(operation.context.g_root_ppn)
     phase <== RiscvPageWalkPhase.GuestPte
     state <== RiscvPageWalkState.CheckAddress
@@ -272,7 +272,7 @@ sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false,
     state <== RiscvPageWalkState.Complete
   elsewhen (response_received & virtual_stage):
     vs_leaf <== vs_pte
-    nested_gpa <== translated_address.zext(64)
+    saved_vs <== saved_vs.updated(~table_ppn: translated_address[12..56])
     frame <== root_frame(operation.context.g_root_ppn)
     phase <== RiscvPageWalkPhase.GuestFinal
     state <== RiscvPageWalkState.CheckAddress
