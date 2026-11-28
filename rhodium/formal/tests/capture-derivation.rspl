@@ -5,6 +5,7 @@ import lib("examples/formal/gated-capture.rhdl") as rtl
 import lib("examples/formal/gated-capture.rspl") as public
 import lib("examples/formal/capture-history.rspl").capture_monitor
 import lib("examples/formal/arbiter.rspl") as grants
+import "arbiter-binding.rhm" as fixture
 import lib("examples/formal/granted-selector.rspl") as selectors
 import lib("flow/arbiter.rhdl") as flow
 import "raw-selector.rhdl" as raw
@@ -113,7 +114,7 @@ export exact_from_bit
 // This real, weaker theorem permits either lane or no grant regardless of requests.
 spec for flow.Arbiter:
   monitor:
-    sample grants.grant_events
+    sample fixture.grant_events
     publish []
     batch ga = present(ga)
     batch gb = present(gb)
@@ -143,7 +144,7 @@ fun grant_with_transfer(cross_payload :: Boolean):
     observe ingress[0].ready = ga
     observe ingress[1].ready = !a.valid && b.valid && egress.ready
     event accepted_a = a.bits when ga
-    transactions grants.Arbiter(~transaction_view: #true)
+    transactions fixture.grant_view
     rtl_refinement:
       pin grant from ingress[0].ready
       care ingress[0].ready = #true
@@ -156,7 +157,7 @@ export grant_with_transfer
 def bad_priority:
   spec for flow.Arbiter:
     monitor:
-      sample grants.grant_events
+      sample fixture.grant_events
       publish []
       batch a = present(a)
       batch b = present(b)

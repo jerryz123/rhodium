@@ -127,6 +127,13 @@ definitions. The [OfferRegister spec](../examples/formal/offer-register.rspl)
 also samples stalled offers without publishing them as deliveries. This form
 requires an elaborated top, including when requesting a transaction view.
 
+Inside a sampler, a loop can bind an indexed event to an actual pin:
+`event (grants[i]) = #true when pin(ingress[i].ready)`. The index selects
+both the event reference and the physical port at elaboration. Static and
+indexed events share one name space; duplicate labels are rejected.
+The [Arbiter spec](../examples/formal/arbiter.rspl) samples requests and
+grant outputs separately so its priority check can detect a spurious grant.
+
 For independent ready/valid handshakes, name the endpoints directly:
 
 ```rhombus

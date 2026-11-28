@@ -122,6 +122,33 @@ check:
       publish []
       guarantee "ok" = #true
   ~throws "duplicate spec declaration: item"
+check:
+  block:
+    spec for rtl.ParamProbe:
+      events raw from pin:
+        event item = #true
+        for (ref in event_family(["item"])):
+          event (ref) = pin(bad)
+      monitor:
+        sample raw
+        publish []
+        guarantee "ok" = #true
+    ParamProbe(elaborate(rtl.ParamProbe(0)).top, ~transaction_view: #true)
+  ~throws "duplicate spec declaration: item"
+
+// A loop-only sampler must actually declare an event at this specialization.
+check:
+  block:
+    spec for rtl.ParamProbe:
+      events raw from pin:
+        for (ref in event_family([])):
+          event (ref) = pin(bad)
+      monitor:
+        sample raw
+        publish []
+        guarantee "ok" = #true
+    ParamProbe(elaborate(rtl.ParamProbe(0)).top, ~transaction_view: #true)
+  ~throws "physical sampler requires a named event"
 
 // A generated cycle event cannot turn an incomplete cycle spec into a passive monitor.
 check:

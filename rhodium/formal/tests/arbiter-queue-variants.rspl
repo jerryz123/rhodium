@@ -7,11 +7,12 @@ import lib("examples/formal/shift-queue.rspl").ShiftQueue
 import lib("rspecl/fifo.rspl").fifo_monitor
 import lib("rhodium/formal/spec.rhm").Observed
 import "arbiter-queue-binding.rhm".crossed_sampler
+import "arbiter-binding.rhm".grant_events
 
 // Prove the genuine grants and transfer count, but expose the output word without constraining it.
 fun count_only(inputs :: Map):
   fun sample_pins(read, output):
-    arb.grant_events(read, output) ++ {
+    grant_events(read, output) ++ {
       "sent": Observed(output("egress.bits", inputs["ingress[0].bits"]), read("egress.ready", Bool) && output("egress.valid", Bool))}
   monitor:
     sample sample_pins

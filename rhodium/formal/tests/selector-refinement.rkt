@@ -321,7 +321,7 @@
 (define strong-grants (prove-design arbiter_definition Arbiter))
 (test-case "correct grants cannot certify a transfer that reports the losing lane's payload"
   (check-true (transaction-for? (prove-design arbiter_definition (faulty:grant_with_transfer #f))
-                                arbiter_definition (Arbiter #:transaction_view #t)))
+                                arbiter_definition (Arbiter arbiter_definition #:transaction_view #t)))
   (check-exn #rx"combinational/transfers not proved"
              (lambda () (prove-design arbiter_definition (faulty:grant_with_transfer #t)))))
 (define gate-bit-view (zero_gate capture_gate #:transaction_view #t))

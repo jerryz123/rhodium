@@ -3,18 +3,28 @@
 
 import:
   lib("rhodium/frontend/foundation.rhm").elaborate
+  lib("rhodium/frontend/foundation.rhm").Bits
+  lib("flow/arbiter.rhdl") as rtl
   "../../../examples/formal/arbiter.rspl".Arbiter
+  lib("rspecl/rtl-boundary.rhm").event_reader
+  "../port-types.rhm".SampledPorts
   "arbiter-override-fixture.rhdl".ReversedArbiter
   "composition-binding.rhm" open
   "../snapshot.rhm".formal_snapshot
   "../spec.rhm" open
 
 export interface_prefixes arbiter_definition bad_definition in_layout out_layout correct faulty model arbiter_spec concrete_row
+export grant_view grant_events grant_view_for
 def PairList[in_layout, out_layout] = pin_layout(arbiter_definition)
 def correct = formal_snapshot(arbiter_definition)
 def bad_definition = elaborate(ReversedArbiter()).top
 def faulty = formal_snapshot(bad_definition)
 def arbiter_spec = Arbiter(arbiter_definition)
+// Bind the two-lane fixture once so intentionally weaker monitors reuse its actual directional samples.
+def grant_view = Arbiter(arbiter_definition, ~transaction_view: #true)
+fun grant_view_for(count :: PosInt, width :: PosInt):
+  Arbiter(elaborate(rtl.Arbiter(Bits(width), count)).top, ~transaction_view: #true)
+def grant_events = event_reader(grant_view.sampler, SampledPorts(grant_view.inputs, grant_view.outputs))
 def model = spec_snapshot(arbiter_spec)
 fun concrete_row(inputs):
   def edge = step_spec(arbiter_spec, Map{}, inputs)

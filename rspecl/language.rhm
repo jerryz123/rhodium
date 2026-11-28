@@ -537,20 +537,32 @@ expr.macro 'rtl_relation($cycle, $ports, $sync): $line; ...':
 expr.macro 'physical_sampler($access): $line; ...':
   def values(_, _, _, record, emit, declarations) = model_body()
   def events = MutableMap{}
+  def values(add_event, all_events) = iterated_fields("physical events", emit)
+  def mutable generated = #false
+  /* Preserve loop bindings and reject collisions even between a family and a static event. */
+  fun physical_line(clause :: Syntax):
+    match clause
+    | 'event ($key ...) = $rhs ...':
+        generated := #true
+        add_event('boundary.event_key($key ...)', observation('$rhs ...'))
+    | 'state $rest ...': syntax_meta.error("physical event samplers are stateless", clause)
+    | 'next $rest ...': syntax_meta.error("physical event samplers are stateless", clause)
+    | ~else: clause
   for (clause in [line, ...]):
     match clause
     | 'event $(id :: Identifier) = $rhs ...':
         record(events, field_name(id), observation('$rhs ...'), clause)
-    | 'state $rest ...': syntax_meta.error("physical event samplers are stateless", clause)
-    | 'next $rest ...': syntax_meta.error("physical event samplers are stateless", clause)
-    | ~else: emit(clause)
-  when events.length() == 0 | syntax_meta.error("physical sampler requires a named event", access)
+    | 'for ($(args :: Group), ...): $items; ...': emit(elaboration_loop(clause, physical_line))
+    | ~else: emit(physical_line(clause))
+  when events.length() == 0 && !generated | syntax_meta.error("physical sampler requires a named event", access)
   let [decl, ...] = declarations()
   'fun (read):
      bind_physical_accessor $access(read)
      $decl
      ...
-     $(map_expr(events))'
+     def sampled = $(all_events(events))
+     when sampled.length() == 0 | error("physical sampler requires a named event")
+     sampled'
 
 meta:
   /* Resolve the member path, not an in-scope cycle expression with the same spelling. */

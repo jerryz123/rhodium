@@ -47,7 +47,22 @@
 
 (module+ test
   (require (only-in "../../../rspecl/runner.rkt" prove-design)
+           (only-in "stall-replay.rhm" sample_events replay_sample)
            (only-in "../../../examples/formal/arbiter.rspl" Arbiter))
+  (test-case "the sampled third grant follows the physical output, even without a request"
+    (define view (grant_view_for 3 8))
+    (define pins (hash "egress.ready" #t "ingress[0].valid" #t "ingress[0].ready" #t
+                       "ingress[1].valid" #t "ingress[1].ready" #f
+                       "ingress[2].valid" #f "ingress[2].ready" #t))
+    (define (events p) (for/hash ([(k v) (sample_events view p)]) (values k v)))
+    (check-equal? (events pins) (hash "ready" #t "a" #t "b" #t "ga" #t "grant2" #t))
+    (define-values (_ verdict) (replay_sample view #f pins))
+    (check-false (hash-ref verdict "grant-2"))
+    (check-false (hash-ref verdict "exclusive"))
+    (check-false (hash-ref verdict "allowed"))
+    (check-equal? (events (hash-set* pins "ingress[0].valid" #f "ingress[0].ready" #f
+                                     "ingress[1].ready" #t "ingress[2].valid" #t "ingress[2].ready" #f))
+                  (hash "ready" #t "b" #t "gb" #t "request2" #t)))
   (test-case "the generic runner rejects the reversed RTL, not just its different declaration name"
     ;; Bind the genuine spec once. The two DUTs have the same physical signature;
     ;; the runner must still sample the implementation it was asked to prove.
